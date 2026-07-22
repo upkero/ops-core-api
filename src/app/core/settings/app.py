@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Annotated, Any
 
-from pydantic import Field, PostgresDsn, field_validator
+from pydantic import Field, PostgresDsn, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -9,6 +9,14 @@ class AppSettings(BaseSettings):
     db_url: PostgresDsn | None = Field(
         default=None,
         description="PostgreSQL async connection URL (postgresql+asyncpg://...).",
+    )
+    # Required on purpose: with a default of None the service would start
+    # happily and reject every write with a puzzling 401. Failing at startup
+    # says what is actually wrong. SecretStr keeps it out of logs and repr.
+    api_key: SecretStr = Field(
+        ...,
+        min_length=16,
+        description="Shared secret for write endpoints, sent as the X-API-Key header.",
     )
     # NoDecode stops the settings source from JSON-decoding this field, which it
     # does for any complex type before validators run. Without it a plain

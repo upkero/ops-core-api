@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.app.api.v1.exception_handlers import register_exception_handlers
+from src.app.api.v1.middleware.api_key import register_api_key_middleware
 from src.app.api.v1.middleware.request_id import register_request_id_middleware
 from src.app.api.v1.router import api_router
 from src.app.api.v1.routers.health import router as health_router
@@ -31,9 +32,16 @@ def create_app() -> FastAPI:
     app = FastAPI(title="Ops Core API", version="0.1.0", lifespan=lifespan)
 
     settings = get_app_settings()
-    # Starlette runs middleware in reverse registration order, so CORS registered
-    # first ends up outermost: error responses produced by inner middleware still
-    # carry CORS headers instead of surfacing as opaque failures in the browser.
+
+    # Middleware is registered inside-out: Starlette prepends each one, so the
+    # LAST registered runs FIRST. The order below produces the runtime chain
+    #     CORS -> request_id -> api_key -> routes
+    # which matters because the api_key middleware short-circuits with a 401.
+    # That response has to travel back out through request_id and CORS, or the
+    # rejection reaches the browser without CORS headers (shown as an opaque
+    # network error rather than a 401) and without a request id in the logs.
+    register_api_key_middleware(app)
+    register_request_id_middleware(app)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_allowed_origins,
@@ -42,7 +50,6 @@ def create_app() -> FastAPI:
         allow_headers=["Content-Type", "X-API-Key", "X-Request-ID"],
     )
 
-    register_request_id_middleware(app)
     register_exception_handlers(app)
 
     app.include_router(health_router)

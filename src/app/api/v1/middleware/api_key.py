@@ -1,0 +1,54 @@
+from collections.abc import Awaitable, Callable
+from logging import getLogger
+from secrets import compare_digest
+
+from fastapi import FastAPI, Request, Response
+
+from src.app.api.v1.exception_handlers import error_response_from_exception
+from src.app.core.settings.app import get_app_settings
+from src.app.exceptions.auth import UnauthorizedError
+
+logger = getLogger(__name__)
+
+_HEADER = "X-API-Key"
+_PROTECTED_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+# Semantic search is a read operation that happens to be a POST, because the
+# query does not belong in a URL. A method-only rule would lock it, so it is
+# listed here explicitly. It stays public but carries the stricter rate limit,
+# since it is the one open endpoint that costs a call to the embedding provider.
+_PUBLIC_ROUTES = frozenset({("POST", "/api/v1/documents/search")})
+
+
+def _requires_api_key(method: str, path: str) -> bool:
+    if method not in _PROTECTED_METHODS:
+        return False
+    normalised = path.rstrip("/") or "/"
+    return (method, normalised) not in _PUBLIC_ROUTES
+
+
+def register_api_key_middleware(app: FastAPI) -> None:
+    """Guard every write endpoint with a shared secret.
+
+    Reads stay open: this service backs a public portfolio demo, so the
+    interesting surface is browsable while nothing can be modified.
+    """
+
+    @app.middleware("http")
+    async def api_key_middleware(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+        if not _requires_api_key(request.method, request.url.path):
+            return await call_next(request)
+
+        provided = request.headers.get(_HEADER)
+        expected = get_app_settings().api_key.get_secret_value()
+        # compare_digest, not ==, so the comparison time does not leak how many
+        # leading characters of a guess were right. Bytes rather than str
+        # because compare_digest rejects non-ASCII strings.
+        if provided is None or not compare_digest(provided.encode("utf-8"), expected.encode("utf-8")):
+            logger.warning("Rejected %s %s: missing or invalid API key.", request.method, request.url.path)
+            # Returned, not raised: exception handlers live inside the
+            # middleware stack, so a raise here would escape them and become a
+            # 500. This renders the same envelope through the shared helper.
+            return error_response_from_exception(UnauthorizedError())
+
+        return await call_next(request)
