@@ -9,6 +9,7 @@ from src.app.api.v1.exception_handlers import register_exception_handlers
 from src.app.api.v1.middleware.api_key import register_api_key_middleware
 from src.app.api.v1.middleware.rate_limit import register_rate_limiting
 from src.app.api.v1.middleware.request_id import register_request_id_middleware
+from src.app.api.v1.openapi import customise_openapi
 from src.app.api.v1.router import api_router
 from src.app.api.v1.routers.health import router as health_router
 from src.app.bootstrap.container import ApplicationContainer
@@ -57,6 +58,9 @@ def create_app() -> FastAPI:
 
     app.include_router(health_router)
     app.include_router(api_router)
+
+    # After the routers: the schema is built from the registered routes.
+    customise_openapi(app)
 
     return app
 
