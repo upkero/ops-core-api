@@ -1,0 +1,36 @@
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ops_core}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-ops_core}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      # Exposed for psql / local tooling. Remove if you do not need it.
+      - "5432:5432"
+
+  api:
+    build: .
+    env_file: .env
+    environment:
+      # Overrides the host in .env: inside the compose network the database is
+      # reachable as "db", not localhost.
+      DB_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-ops_core}
+    depends_on:
+      db:
+        # Waits for the healthcheck, not just for the container to exist, so
+        # migrations never race a database that is still starting up.
+        condition: service_healthy
+    command: ["./scripts/start.sh"]
+    ports:
+      - "8000:8000"
+
+volumes:
+  db_data:
