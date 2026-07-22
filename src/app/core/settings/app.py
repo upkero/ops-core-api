@@ -18,6 +18,16 @@ class AppSettings(BaseSettings):
         min_length=16,
         description="Shared secret for write endpoints, sent as the X-API-Key header.",
     )
+    rate_limit_per_minute: int = Field(
+        default=60,
+        gt=0,
+        description="Requests per minute per client IP, applied to every endpoint.",
+    )
+    embedding_rate_limit_per_minute: int = Field(
+        default=20,
+        gt=0,
+        description="Tighter per-minute limit for endpoints that call the embedding provider.",
+    )
     # NoDecode stops the settings source from JSON-decoding this field, which it
     # does for any complex type before validators run. Without it a plain
     # "a,b" env value fails at parse time and split_comma_separated never sees it.
