@@ -1,0 +1,48 @@
+from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import datetime
+from uuid import UUID
+
+
+@dataclass(frozen=True, slots=True)
+class NewChunk:
+    """A chunk ready to be persisted, embedding already computed."""
+
+    chunk_index: int
+    chunk_text: str
+    embedding: Sequence[float]
+
+
+@dataclass(frozen=True, slots=True)
+class NewDocument:
+    title: str
+    content: str
+    embedding: Sequence[float] | None
+    chunks: Sequence[NewChunk]
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentDTO:
+    id: UUID
+    title: str
+    content: str
+    chunk_count: int
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ChunkMatchDTO:
+    """One semantic-search hit.
+
+    `distance` is pgvector's cosine distance (0 = identical direction, 2 =
+    opposite). `score` is the cosine similarity `1 - distance`, so it reads the
+    intuitive way round: higher is more relevant.
+    """
+
+    chunk_id: UUID
+    document_id: UUID
+    document_title: str
+    chunk_index: int
+    chunk_text: str
+    distance: float
+    score: float

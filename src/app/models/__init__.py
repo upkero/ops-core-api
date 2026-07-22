@@ -5,8 +5,8 @@ Every model is re-exported here so that importing this package populates
 """
 
 from src.app.models.base import Base
-from src.app.models.booking import Booking, BookingSlot, ResourceType
-from src.app.models.customer import Customer, CustomerStatus
+from src.app.models.booking import Booking, BookingSlot
+from src.app.models.customer import Customer
 from src.app.models.knowledge import EMBEDDING_DIMENSIONS, DocumentChunk, KnowledgeDocument
 from src.app.models.pricing import PricingItem
 
@@ -16,9 +16,7 @@ __all__ = [
     "Booking",
     "BookingSlot",
     "Customer",
-    "CustomerStatus",
     "DocumentChunk",
     "KnowledgeDocument",
     "PricingItem",
-    "ResourceType",
 ]

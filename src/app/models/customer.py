@@ -1,4 +1,3 @@
-import enum
 import uuid
 from datetime import datetime
 
@@ -6,13 +5,8 @@ from sqlalchemy import DateTime, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
+from src.app.contracts.enums import CustomerStatus
 from src.app.models.base import Base, pg_enum
-
-
-class CustomerStatus(enum.StrEnum):
-    ACTIVE = "active"
-    LEAD = "lead"
-    CHURNED = "churned"
 
 
 class Customer(Base):

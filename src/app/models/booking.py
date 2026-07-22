@@ -1,4 +1,3 @@
-import enum
 import uuid
 from datetime import date, datetime, time
 
@@ -17,12 +16,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
+from src.app.contracts.enums import ResourceType
 from src.app.models.base import Base, pg_enum
-
-
-class ResourceType(enum.StrEnum):
-    TABLE = "table"
-    MEETING_ROOM = "meeting_room"
 
 
 class BookingSlot(Base):
