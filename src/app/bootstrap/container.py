@@ -7,7 +7,9 @@ from src.app.core.settings.app import get_app_settings
 from src.app.core.settings.embeddings import get_embedding_settings
 from src.app.db.session import build_engine, build_session_factory
 from src.app.interfaces.llm.embedding_client import EmbeddingClient
+from src.app.interfaces.pricing.discount_policy import DiscountPolicy
 from src.app.llm.embedding_factory import create_embedding_client
+from src.app.services.pricing import QuantityTierDiscountPolicy
 
 
 class ApplicationContainer:
@@ -20,6 +22,12 @@ class ApplicationContainer:
     @cached_property
     def embedding_client(self) -> EmbeddingClient:
         return create_embedding_client(get_embedding_settings())
+
+    @cached_property
+    def discount_policy(self) -> DiscountPolicy:
+        # Swapping the active promotion means returning a different Strategy
+        # here; nothing in services/ or api/ changes.
+        return QuantityTierDiscountPolicy()
 
     @cached_property
     def _db_engine(self) -> AsyncEngine:

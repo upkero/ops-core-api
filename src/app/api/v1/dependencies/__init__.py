@@ -5,6 +5,12 @@ from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.bootstrap.container import ApplicationContainer
+from src.app.repositories.booking import SqlAlchemyBookingRepository
+from src.app.repositories.customer import SqlAlchemyCustomerRepository
+from src.app.repositories.pricing import SqlAlchemyPricingRepository
+from src.app.services.booking import BookingService
+from src.app.services.customer import CustomerService
+from src.app.services.pricing import PricingService
 
 
 def get_container(request: Request) -> ApplicationContainer:
@@ -25,3 +31,22 @@ async def get_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]
 
 ContainerDep = Annotated[ApplicationContainer, Depends(get_container)]
 DBSessionDep = Annotated[AsyncSession, Depends(get_db_session)]
+
+
+# Services are assembled per request because they wrap the request-scoped
+# session. Only the session-free dependencies live on the container.
+def get_customer_service(session: DBSessionDep) -> CustomerService:
+    return CustomerService(SqlAlchemyCustomerRepository(session))
+
+
+def get_booking_service(session: DBSessionDep) -> BookingService:
+    return BookingService(SqlAlchemyBookingRepository(session), SqlAlchemyCustomerRepository(session))
+
+
+def get_pricing_service(session: DBSessionDep, container: ContainerDep) -> PricingService:
+    return PricingService(SqlAlchemyPricingRepository(session), container.discount_policy)
+
+
+CustomerServiceDep = Annotated[CustomerService, Depends(get_customer_service)]
+BookingServiceDep = Annotated[BookingService, Depends(get_booking_service)]
+PricingServiceDep = Annotated[PricingService, Depends(get_pricing_service)]
