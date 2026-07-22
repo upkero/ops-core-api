@@ -15,6 +15,11 @@ _NGRAM_SIZE = 4
 _NGRAM_PREFIX = "#"
 _NGRAM_WEIGHT = 0.5
 
+# Longest-first, so "cancellations" loses "ations" rather than just "s".
+_SUFFIXES = ("ations", "ation", "ements", "ement", "ings", "ing", "ies", "ied", "es", "ed", "ly", "s")
+_MIN_STEM_LENGTH = 3
+_VOWELS = frozenset("aeiou")
+
 # Trimming the highest-frequency function words keeps a query like
 # "how do I cancel my appointment" from being dominated by "how/do/i/my".
 _STOPWORDS = frozenset(
@@ -100,9 +105,33 @@ class HashingEmbeddingClient(EmbeddingClient):
                 )
         return features
 
-    @staticmethod
-    def _tokens(text: str) -> list[str]:
-        tokens = [token for token in _TOKEN_PATTERN.findall(text.lower()) if token not in _STOPWORDS]
+    @classmethod
+    def _tokens(cls, text: str) -> list[str]:
+        words = _TOKEN_PATTERN.findall(text.lower())
         # Fall back to the unfiltered tokens rather than embedding nothing when
         # a short query is made entirely of stopwords ("how do I").
-        return tokens or _TOKEN_PATTERN.findall(text.lower())
+        kept = [word for word in words if word not in _STOPWORDS] or words
+        return [cls._stem(word) for word in kept]
+
+    @staticmethod
+    def _stem(token: str) -> str:
+        """Strip common English inflections so word forms collapse together.
+
+        Without this, a query for "cancel" scores nothing against a passage
+        about "cancelled" appointments, and a chunk that merely repeats the
+        query's common noun outranks the one that actually answers it. Crude on
+        purpose — a full Porter stemmer would be a dependency for no measurable
+        gain at this corpus size.
+        """
+        for suffix in _SUFFIXES:
+            if not token.endswith(suffix) or len(token) - len(suffix) < _MIN_STEM_LENGTH:
+                continue
+            root = token[: -len(suffix)]
+            if suffix in ("ies", "ied"):
+                return f"{root}y"
+            # "cancelled" -> "cancell" -> "cancel": undo the consonant that
+            # English doubles before -ed / -ing.
+            if suffix in ("ed", "ing") and len(root) > 2 and root[-1] == root[-2] and root[-1] not in _VOWELS:
+                root = root[:-1]
+            return root
+        return token
