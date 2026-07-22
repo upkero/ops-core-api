@@ -1,0 +1,75 @@
+import math
+from collections.abc import Sequence
+
+from src.app.contracts.knowledge import ChunkMatchDTO, DocumentDTO, NewChunk, NewDocument
+from src.app.exceptions.embeddings import EmbeddingInputError
+from src.app.interfaces.llm.embedding_client import EmbeddingClient
+from src.app.interfaces.repositories.knowledge_repository import KnowledgeRepository
+from src.app.services.knowledge.chunker import DEFAULT_MAX_CHARS, DEFAULT_OVERLAP, chunk_text
+
+MAX_TOP_K = 50
+
+
+class KnowledgeService:
+    """Ingests documents and answers semantic queries.
+
+    Chunking and embedding happen here, on write, so a search is a single
+    vector query with no model call per stored chunk.
+    """
+
+    def __init__(
+        self,
+        repository: KnowledgeRepository,
+        embedding_client: EmbeddingClient,
+        *,
+        max_chunk_chars: int = DEFAULT_MAX_CHARS,
+        chunk_overlap: int = DEFAULT_OVERLAP,
+    ) -> None:
+        self._repository = repository
+        self._embedding_client = embedding_client
+        self._max_chunk_chars = max_chunk_chars
+        self._chunk_overlap = chunk_overlap
+
+    async def add_document(self, title: str, content: str) -> DocumentDTO:
+        chunks = chunk_text(content, max_chars=self._max_chunk_chars, overlap=self._chunk_overlap)
+        if not chunks:
+            raise EmbeddingInputError("Document content produced no chunks to embed.")
+
+        # One batched provider call for the whole document rather than one per
+        # chunk: fewer round trips, and the provider bills per token either way.
+        vectors = await self._embedding_client.embed_batch(chunks)
+
+        document = NewDocument(
+            title=title,
+            content=content,
+            embedding=self._mean_vector(vectors),
+            chunks=[
+                NewChunk(chunk_index=index, chunk_text=chunk, embedding=vector)
+                for index, (chunk, vector) in enumerate(zip(chunks, vectors, strict=True))
+            ],
+        )
+        return await self._repository.add_document(document)
+
+    async def search(self, query: str, top_k: int) -> Sequence[ChunkMatchDTO]:
+        if not query.strip():
+            raise EmbeddingInputError("Search query must not be empty.")
+        top_k = min(max(top_k, 1), MAX_TOP_K)
+        embedding = await self._embedding_client.embed_query(query)
+        return await self._repository.search_chunks(embedding, top_k)
+
+    @staticmethod
+    def _mean_vector(vectors: Sequence[Sequence[float]]) -> Sequence[float] | None:
+        """Document-level embedding: the centroid of its chunks.
+
+        Fills the document's vector column without spending a second provider
+        call on the full text. Re-normalised so it sits on the same unit sphere
+        as the chunk vectors and stays comparable with cosine distance.
+        """
+        if not vectors:
+            return None
+        count = len(vectors)
+        centroid = [sum(values) / count for values in zip(*vectors, strict=True)]
+        norm = math.sqrt(sum(value * value for value in centroid))
+        if norm == 0.0:
+            return centroid
+        return [value / norm for value in centroid]

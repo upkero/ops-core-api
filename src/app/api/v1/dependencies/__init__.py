@@ -7,9 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.bootstrap.container import ApplicationContainer
 from src.app.repositories.booking import SqlAlchemyBookingRepository
 from src.app.repositories.customer import SqlAlchemyCustomerRepository
+from src.app.repositories.knowledge import SqlAlchemyKnowledgeRepository
 from src.app.repositories.pricing import SqlAlchemyPricingRepository
 from src.app.services.booking import BookingService
 from src.app.services.customer import CustomerService
+from src.app.services.knowledge import KnowledgeService
 from src.app.services.pricing import PricingService
 
 
@@ -47,6 +49,11 @@ def get_pricing_service(session: DBSessionDep, container: ContainerDep) -> Prici
     return PricingService(SqlAlchemyPricingRepository(session), container.discount_policy)
 
 
+def get_knowledge_service(session: DBSessionDep, container: ContainerDep) -> KnowledgeService:
+    return KnowledgeService(SqlAlchemyKnowledgeRepository(session), container.embedding_client)
+
+
 CustomerServiceDep = Annotated[CustomerService, Depends(get_customer_service)]
 BookingServiceDep = Annotated[BookingService, Depends(get_booking_service)]
 PricingServiceDep = Annotated[PricingService, Depends(get_pricing_service)]
+KnowledgeServiceDep = Annotated[KnowledgeService, Depends(get_knowledge_service)]
