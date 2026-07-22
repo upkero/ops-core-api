@@ -20,13 +20,16 @@ async def health(request: Request) -> JSONResponse:
     raise before the handler runs when the database is unreachable, which is
     exactly the case this endpoint has to report on.
     """
-    database = "ok"
+    database_reachable = True
     try:
         async with request.app.state.container.session_factory() as session:
             await session.execute(text("SELECT 1"))
     except (SQLAlchemyError, OSError, RuntimeError) as exc:
         logger.warning("Health check could not reach the database: %s", exc)
-        database = "unavailable"
+        database_reachable = False
 
-    body = HealthResponse(status="ok" if database == "ok" else "degraded", database=database)
-    return JSONResponse(status_code=200 if database == "ok" else 503, content=body.model_dump())
+    body = HealthResponse(
+        status="ok" if database_reachable else "degraded",
+        database="ok" if database_reachable else "unavailable",
+    )
+    return JSONResponse(status_code=200 if database_reachable else 503, content=body.model_dump())

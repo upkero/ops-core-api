@@ -3,7 +3,6 @@ from collections.abc import Awaitable, Callable
 from logging import getLogger
 
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import JSONResponse
 from limits import parse
 from limits.storage import MemoryStorage
 from limits.strategies import FixedWindowRateLimiter
@@ -92,7 +91,7 @@ def register_rate_limiting(app: FastAPI) -> None:
         return response
 
 
-async def handle_rate_limit_exceeded(request: Request, exc: Exception) -> JSONResponse:
+async def handle_rate_limit_exceeded(request: Request, exc: Exception) -> Response:
     """Return 429 in this project's error envelope.
 
     slowapi's own handler emits `{"error": "Rate limit exceeded: ..."}`, which

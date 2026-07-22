@@ -61,7 +61,8 @@ async def handle_request_validation_error(request: Request, exc: RequestValidati
 
 
 async def handle_http_exception(request: Request, exc: StarletteHTTPException) -> JSONResponse:
-    return _error_response(exc.status_code, exc.detail, "http_error", headers=exc.headers)
+    headers = dict(exc.headers) if exc.headers else None
+    return _error_response(exc.status_code, exc.detail, "http_error", headers=headers)
 
 
 async def handle_unexpected_exception(request: Request, exc: Exception) -> JSONResponse:

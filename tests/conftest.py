@@ -1,0 +1,142 @@
+import os
+
+# Set before importing anything from src: settings are read at import time
+# (the rate limiter builds its limit strings from them) and are then cached.
+# Environment variables take priority over any local .env file.
+TEST_API_KEY = "test-api-key-long-enough-1234567890"
+os.environ["API_KEY"] = TEST_API_KEY
+os.environ["RATE_LIMIT_PER_MINUTE"] = "5"
+os.environ["EMBEDDING_RATE_LIMIT_PER_MINUTE"] = "3"
+os.environ["CORS_ALLOWED_ORIGINS"] = "http://localhost:3000"
+os.environ["EMBEDDING_PROVIDER"] = "hashing"
+os.environ.setdefault("DB_URL", "postgresql+asyncpg://unused:unused@localhost:1/unused")
+os.environ.setdefault("LOG_LEVEL", "WARNING")
+
+from collections.abc import AsyncGenerator, Iterator  # noqa: E402
+
+import pytest  # noqa: E402
+from fastapi import FastAPI  # noqa: E402
+from httpx import ASGITransport, AsyncClient  # noqa: E402
+
+from src.app.api.v1.dependencies import (  # noqa: E402
+    get_booking_service,
+    get_customer_service,
+    get_knowledge_service,
+    get_pricing_service,
+)
+from src.app.api.v1.middleware.rate_limit import limiter, reset_global_rate_limit  # noqa: E402
+from src.app.services.booking import BookingService  # noqa: E402
+from src.app.services.customer import CustomerService  # noqa: E402
+from src.app.services.knowledge import KnowledgeService  # noqa: E402
+from src.app.services.pricing import PricingService, QuantityTierDiscountPolicy  # noqa: E402
+from src.main import create_app  # noqa: E402
+from tests.fakes import (  # noqa: E402
+    FakeBookingRepository,
+    FakeCustomerRepository,
+    FakeEmbeddingClient,
+    FakeKnowledgeRepository,
+    FakePricingRepository,
+    make_customer,
+    make_pricing_item,
+    make_slot,
+)
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limits() -> Iterator[None]:
+    """Keep cases independent: counters are process-global."""
+    reset_global_rate_limit()
+    limiter.reset()
+    yield
+    reset_global_rate_limit()
+    limiter.reset()
+
+
+class StubContainer:
+    """Stands in for ApplicationContainer without opening a database."""
+
+    def __init__(self, *, embedding_client: FakeEmbeddingClient, database_healthy: bool = True) -> None:
+        self.embedding_client = embedding_client
+        self.discount_policy = QuantityTierDiscountPolicy()
+        self.database_healthy = database_healthy
+
+    def session_factory(self) -> "_StubSession":
+        return _StubSession(healthy=self.database_healthy)
+
+
+class _StubSession:
+    def __init__(self, *, healthy: bool) -> None:
+        self._healthy = healthy
+
+    async def __aenter__(self) -> "_StubSession":
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> bool:
+        return False
+
+    async def execute(self, *args: object, **kwargs: object) -> None:
+        if not self._healthy:
+            raise OSError("database is unreachable")
+
+
+@pytest.fixture
+def customers() -> FakeCustomerRepository:
+    return FakeCustomerRepository([make_customer("Anna Petrova"), make_customer("Marcus Feld")])
+
+
+@pytest.fixture
+def slots() -> FakeBookingRepository:
+    return FakeBookingRepository([make_slot(capacity=4), make_slot(capacity=2)])
+
+
+@pytest.fixture
+def pricing() -> FakePricingRepository:
+    return FakePricingRepository([make_pricing_item(), make_pricing_item("Nutrition Coaching", "95.00")])
+
+
+@pytest.fixture
+def knowledge() -> FakeKnowledgeRepository:
+    return FakeKnowledgeRepository()
+
+
+@pytest.fixture
+def embedding_client() -> FakeEmbeddingClient:
+    return FakeEmbeddingClient()
+
+
+@pytest.fixture
+def app(
+    customers: FakeCustomerRepository,
+    slots: FakeBookingRepository,
+    pricing: FakePricingRepository,
+    knowledge: FakeKnowledgeRepository,
+    embedding_client: FakeEmbeddingClient,
+) -> Iterator[FastAPI]:
+    """The real app, with only the outermost boundary (the database) replaced.
+
+    Middleware, routing, schema validation and exception handling are all the
+    production ones, so these tests exercise the wiring rather than a mock of it.
+    """
+    application = create_app()
+    application.state.container = StubContainer(embedding_client=embedding_client)
+
+    application.dependency_overrides[get_customer_service] = lambda: CustomerService(customers)
+    application.dependency_overrides[get_booking_service] = lambda: BookingService(slots, customers)
+    application.dependency_overrides[get_pricing_service] = lambda: PricingService(
+        pricing, QuantityTierDiscountPolicy()
+    )
+    application.dependency_overrides[get_knowledge_service] = lambda: KnowledgeService(knowledge, embedding_client)
+
+    yield application
+    application.dependency_overrides.clear()
+
+
+@pytest.fixture
+async def client(app: FastAPI) -> AsyncGenerator[AsyncClient, None]:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as async_client:
+        yield async_client
+
+
+@pytest.fixture
+def auth_headers() -> dict[str, str]:
+    return {"X-API-Key": TEST_API_KEY}

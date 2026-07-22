@@ -1,0 +1,217 @@
+"""In-memory implementations of every port.
+
+These are the second implementation that justifies the interfaces: services are
+tested against them with no database, no network and no embedding provider.
+"""
+
+import math
+import zlib
+from collections.abc import Sequence
+from dataclasses import dataclass, field, replace
+from datetime import UTC, date, datetime
+from decimal import Decimal
+from uuid import UUID, uuid4
+
+from src.app.contracts.booking import BookingDTO, BookingSlotDTO
+from src.app.contracts.customer import CustomerDTO
+from src.app.contracts.enums import CustomerStatus, ResourceType
+from src.app.contracts.knowledge import ChunkMatchDTO, DocumentDTO, NewDocument
+from src.app.contracts.pricing import PricingItemDTO
+from src.app.interfaces.llm.embedding_client import EmbeddingClient
+from src.app.interfaces.repositories.booking_repository import BookingRepository
+from src.app.interfaces.repositories.customer_repository import CustomerRepository
+from src.app.interfaces.repositories.knowledge_repository import KnowledgeRepository
+from src.app.interfaces.repositories.pricing_repository import PricingRepository
+
+
+def make_customer(name: str = "Anna Petrova", **overrides: object) -> CustomerDTO:
+    base = CustomerDTO(
+        id=uuid4(),
+        name=name,
+        status=CustomerStatus.ACTIVE,
+        last_contact_at=datetime(2026, 7, 1, tzinfo=UTC),
+        notes=None,
+    )
+    return replace(base, **overrides)  # type: ignore[arg-type]
+
+
+def make_slot(**overrides: object) -> BookingSlotDTO:
+    base = BookingSlotDTO(
+        id=uuid4(),
+        resource_type=ResourceType.TABLE,
+        slot_date=date(2026, 8, 1),
+        slot_time=datetime(2026, 8, 1, 19, 0, tzinfo=UTC).time(),
+        capacity=4,
+        is_available=True,
+    )
+    return replace(base, **overrides)  # type: ignore[arg-type]
+
+
+class FakeCustomerRepository(CustomerRepository):
+    def __init__(self, customers: Sequence[CustomerDTO] = ()) -> None:
+        self.customers = list(customers)
+
+    async def get_by_id(self, customer_id: UUID) -> CustomerDTO | None:
+        return next((c for c in self.customers if c.id == customer_id), None)
+
+    async def search_by_name(self, query: str, limit: int) -> Sequence[CustomerDTO]:
+        return [c for c in self.customers if query.lower() in c.name.lower()][:limit]
+
+    async def list_all(self, limit: int) -> Sequence[CustomerDTO]:
+        return self.customers[:limit]
+
+
+class FakeBookingRepository(BookingRepository):
+    def __init__(self, slots: Sequence[BookingSlotDTO] = ()) -> None:
+        self.slots = {slot.id: slot for slot in slots}
+        self.bookings: list[BookingDTO] = []
+        self.locked: list[UUID] = []
+
+    async def list_available_slots(
+        self,
+        slot_date: date | None,
+        resource_type: ResourceType | None,
+        limit: int,
+    ) -> Sequence[BookingSlotDTO]:
+        found = [
+            slot
+            for slot in self.slots.values()
+            if slot.is_available
+            and (slot_date is None or slot.slot_date == slot_date)
+            and (resource_type is None or slot.resource_type == resource_type)
+        ]
+        return sorted(found, key=lambda slot: (slot.slot_date, slot.slot_time))[:limit]
+
+    async def lock_slot(self, slot_id: UUID) -> BookingSlotDTO | None:
+        self.locked.append(slot_id)
+        return self.slots.get(slot_id)
+
+    async def create_booking(self, customer_id: UUID, slot_id: UUID, party_size: int) -> BookingDTO:
+        booking = BookingDTO(
+            id=uuid4(),
+            customer_id=customer_id,
+            slot_id=slot_id,
+            party_size=party_size,
+            created_at=datetime(2026, 7, 22, tzinfo=UTC),
+        )
+        self.bookings.append(booking)
+        return booking
+
+    async def mark_slot_taken(self, slot_id: UUID) -> None:
+        self.slots[slot_id] = replace(self.slots[slot_id], is_available=False)
+
+
+class FakePricingRepository(PricingRepository):
+    def __init__(self, items: Sequence[PricingItemDTO] = ()) -> None:
+        self.items = list(items)
+
+    async def get_by_service_name(self, service_name: str) -> PricingItemDTO | None:
+        return next((i for i in self.items if i.service_name.lower() == service_name.lower()), None)
+
+    async def list_all(self) -> Sequence[PricingItemDTO]:
+        return sorted(self.items, key=lambda item: item.service_name)
+
+
+def make_pricing_item(name: str = "Deep Tissue Massage", price: str = "120.00") -> PricingItemDTO:
+    return PricingItemDTO(id=uuid4(), service_name=name, unit_price=Decimal(price), description=None)
+
+
+@dataclass
+class _StoredChunk:
+    chunk_id: UUID
+    document_id: UUID
+    document_title: str
+    chunk_index: int
+    chunk_text: str
+    embedding: Sequence[float]
+
+
+class FakeKnowledgeRepository(KnowledgeRepository):
+    def __init__(self) -> None:
+        self.documents: list[NewDocument] = []
+        self.chunks: list[_StoredChunk] = []
+
+    async def add_document(self, document: NewDocument) -> DocumentDTO:
+        self.documents.append(document)
+        document_id = uuid4()
+        self.chunks.extend(
+            _StoredChunk(
+                chunk_id=uuid4(),
+                document_id=document_id,
+                document_title=document.title,
+                chunk_index=chunk.chunk_index,
+                chunk_text=chunk.chunk_text,
+                embedding=chunk.embedding,
+            )
+            for chunk in document.chunks
+        )
+        return DocumentDTO(
+            id=document_id,
+            title=document.title,
+            content=document.content,
+            chunk_count=len(document.chunks),
+            created_at=datetime(2026, 7, 22, tzinfo=UTC),
+        )
+
+    async def search_chunks(self, embedding: Sequence[float], top_k: int) -> Sequence[ChunkMatchDTO]:
+        scored = sorted(
+            ((_cosine_distance(embedding, chunk.embedding), chunk) for chunk in self.chunks),
+            key=lambda pair: pair[0],
+        )
+        return [
+            ChunkMatchDTO(
+                chunk_id=chunk.chunk_id,
+                document_id=chunk.document_id,
+                document_title=chunk.document_title,
+                chunk_index=chunk.chunk_index,
+                chunk_text=chunk.chunk_text,
+                distance=distance,
+                score=1.0 - distance,
+            )
+            for distance, chunk in scored[:top_k]
+        ]
+
+
+def _cosine_distance(left: Sequence[float], right: Sequence[float]) -> float:
+    dot = sum(a * b for a, b in zip(left, right, strict=True))
+    norm = math.sqrt(sum(a * a for a in left)) * math.sqrt(sum(b * b for b in right))
+    return 1.0 - (dot / norm if norm else 0.0)
+
+
+@dataclass
+class FakeEmbeddingClient(EmbeddingClient):
+    """Records what it was asked to embed so tests can assert on batching."""
+
+    dimension: int = 8
+    batches: list[Sequence[str]] = field(default_factory=list)
+    queries: list[str] = field(default_factory=list)
+
+    @property
+    def provider_name(self) -> str:
+        return "fake"
+
+    @property
+    def dimensions(self) -> int:
+        return self.dimension
+
+    async def embed_query(self, text: str) -> Sequence[float]:
+        self.queries.append(text)
+        return self._vector(text)
+
+    async def embed_batch(self, texts: Sequence[str]) -> Sequence[Sequence[float]]:
+        self.batches.append(list(texts))
+        return [self._vector(text) for text in texts]
+
+    async def close(self) -> None:
+        return None
+
+    def _vector(self, text: str) -> list[float]:
+        # Deterministic and word-sensitive enough that "closest chunk" is
+        # predictable in assertions.
+        vector = [0.0] * self.dimension
+        for word in text.lower().split():
+            # zlib.crc32, not hash(): str hashing is salted per process, which
+            # would make ranking assertions pass or fail run to run.
+            vector[zlib.crc32(word.encode()) % self.dimension] += 1.0
+        norm = math.sqrt(sum(value * value for value in vector))
+        return [value / norm for value in vector] if norm else [1.0] + [0.0] * (self.dimension - 1)
