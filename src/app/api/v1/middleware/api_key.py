@@ -10,28 +10,55 @@ from src.app.exceptions.auth import UnauthorizedError
 
 logger = getLogger(__name__)
 
-_HEADER = "X-API-Key"
-_PROTECTED_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+API_KEY_HEADER = "X-API-Key"
+
+_WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+# OPTIONS is the CORS preflight, which a browser sends without custom headers by
+# definition — demanding a key there would break CORS for every origin.
+_NEVER_GUARDED_METHODS = frozenset({"OPTIONS", "HEAD"})
+
+# Always reachable. /health is polled by the container runtime, and the schema
+# endpoints have to load unauthenticated or Swagger UI cannot render at all.
+# None of them expose data.
+_ALWAYS_OPEN_PATHS = frozenset({"/health", "/docs", "/redoc", "/openapi.json", "/docs/oauth2-redirect"})
 
 # Semantic search is a read operation that happens to be a POST, because the
 # query does not belong in a URL. A method-only rule would lock it, so it is
 # listed here explicitly. It stays public but carries the stricter rate limit,
 # since it is the one open endpoint that costs a call to the embedding provider.
-_PUBLIC_ROUTES = frozenset({("POST", "/api/v1/documents/search")})
+_PUBLIC_READ_ROUTES = frozenset({("POST", "/api/v1/documents/search")})
 
 
 def _requires_api_key(method: str, path: str) -> bool:
-    if method not in _PROTECTED_METHODS:
+    """The single source of truth for what needs a key.
+
+    The middleware enforces it and the OpenAPI schema is generated from it, so
+    the padlock shown in Swagger cannot drift from the rule actually applied.
+    """
+    if method in _NEVER_GUARDED_METHODS:
         return False
+
     normalised = path.rstrip("/") or "/"
-    return (method, normalised) not in _PUBLIC_ROUTES
+    if normalised in _ALWAYS_OPEN_PATHS:
+        return False
+
+    if not get_app_settings().public_reads:
+        return True
+
+    if method not in _WRITE_METHODS:
+        return False
+    return (method, normalised) not in _PUBLIC_READ_ROUTES
 
 
 def register_api_key_middleware(app: FastAPI) -> None:
-    """Guard every write endpoint with a shared secret.
+    """Guard write endpoints — or everything — with a shared secret.
 
-    Reads stay open: this service backs a public portfolio demo, so the
-    interesting surface is browsable while nothing can be modified.
+    With PUBLIC_READS=true (the default) reads stay open, so the demo is
+    browsable while nothing can be modified. Set it to false when the service
+    is deployed as a private backend and the data is real: a key that a browser
+    would have to hold is not a secret, so open reads are only defensible while
+    the data is not.
     """
 
     @app.middleware("http")
@@ -39,7 +66,7 @@ def register_api_key_middleware(app: FastAPI) -> None:
         if not _requires_api_key(request.method, request.url.path):
             return await call_next(request)
 
-        provided = request.headers.get(_HEADER)
+        provided = request.headers.get(API_KEY_HEADER)
         expected = get_app_settings().api_key.get_secret_value()
         # compare_digest, not ==, so the comparison time does not leak how many
         # leading characters of a guess were right. Bytes rather than str

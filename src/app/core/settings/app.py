@@ -18,6 +18,14 @@ class AppSettings(BaseSettings):
         min_length=16,
         description="Shared secret for write endpoints, sent as the X-API-Key header.",
     )
+    public_reads: bool = Field(
+        default=True,
+        description=(
+            "True: read endpoints are open, only writes need the API key — the public "
+            "demo posture. False: every endpoint except /health needs the key, for "
+            "deployments where this service is the private source of truth."
+        ),
+    )
     rate_limit_per_minute: int = Field(
         default=60,
         gt=0,

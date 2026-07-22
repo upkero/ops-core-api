@@ -25,6 +25,7 @@ from src.app.api.v1.dependencies import (  # noqa: E402
     get_pricing_service,
 )
 from src.app.api.v1.middleware.rate_limit import limiter, reset_global_rate_limit  # noqa: E402
+from src.app.core.settings.app import get_app_settings  # noqa: E402
 from src.app.services.booking import BookingService  # noqa: E402
 from src.app.services.customer import CustomerService  # noqa: E402
 from src.app.services.knowledge import KnowledgeService  # noqa: E402
@@ -104,14 +105,13 @@ def embedding_client() -> FakeEmbeddingClient:
     return FakeEmbeddingClient()
 
 
-@pytest.fixture
-def app(
+def build_app(
     customers: FakeCustomerRepository,
     slots: FakeBookingRepository,
     pricing: FakePricingRepository,
     knowledge: FakeKnowledgeRepository,
     embedding_client: FakeEmbeddingClient,
-) -> Iterator[FastAPI]:
+) -> FastAPI:
     """The real app, with only the outermost boundary (the database) replaced.
 
     Middleware, routing, schema validation and exception handling are all the
@@ -126,9 +126,29 @@ def app(
         pricing, QuantityTierDiscountPolicy()
     )
     application.dependency_overrides[get_knowledge_service] = lambda: KnowledgeService(knowledge, embedding_client)
+    return application
 
+
+@pytest.fixture
+def app(
+    customers: FakeCustomerRepository,
+    slots: FakeBookingRepository,
+    pricing: FakePricingRepository,
+    knowledge: FakeKnowledgeRepository,
+    embedding_client: FakeEmbeddingClient,
+) -> Iterator[FastAPI]:
+    application = build_app(customers, slots, pricing, knowledge, embedding_client)
     yield application
     application.dependency_overrides.clear()
+
+
+@pytest.fixture
+def private_reads(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Run the app with PUBLIC_READS=false, the private-backend posture."""
+    monkeypatch.setenv("PUBLIC_READS", "false")
+    get_app_settings.cache_clear()
+    yield
+    get_app_settings.cache_clear()
 
 
 @pytest.fixture
