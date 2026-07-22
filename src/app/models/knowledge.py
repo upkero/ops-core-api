@@ -6,11 +6,8 @@ from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, Uniqu
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
+from src.app.contracts.knowledge import EMBEDDING_DIMENSIONS
 from src.app.models.base import Base
-
-# Fixed at the schema level: changing it requires an Alembic migration, so the
-# embedding provider's output size must match EMBEDDING_DIMENSIONS in settings.
-EMBEDDING_DIMENSIONS = 1536
 
 
 class KnowledgeDocument(Base):

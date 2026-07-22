@@ -4,7 +4,10 @@ from functools import cached_property
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from src.app.core.settings.app import get_app_settings
+from src.app.core.settings.embeddings import get_embedding_settings
 from src.app.db.session import build_engine, build_session_factory
+from src.app.interfaces.llm.embedding_client import EmbeddingClient
+from src.app.llm.embedding_factory import create_embedding_client
 
 
 class ApplicationContainer:
@@ -13,6 +16,10 @@ class ApplicationContainer:
     Per-request objects (repositories, services) are built in api/v1/dependencies,
     because they need the request-scoped database session.
     """
+
+    @cached_property
+    def embedding_client(self) -> EmbeddingClient:
+        return create_embedding_client(get_embedding_settings())
 
     @cached_property
     def _db_engine(self) -> AsyncEngine:
