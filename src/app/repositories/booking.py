@@ -26,7 +26,7 @@ def _slot_to_dto(row: BookingSlot) -> BookingSlotDTO:
 def _booking_to_dto(row: Booking) -> BookingDTO:
     return BookingDTO(
         id=row.id,
-        customer_id=row.customer_id,
+        guest_name=row.guest_name,
         slot_id=row.slot_id,
         party_size=row.party_size,
         created_at=row.created_at,
@@ -67,13 +67,13 @@ class SqlAlchemyBookingRepository(BookingRepository):
 
     async def create_booking(
         self,
-        customer_id: UUID,
+        guest_name: str,
         slot_id: UUID,
         party_size: int,
         idempotency_key: str | None = None,
     ) -> BookingDTO:
         booking = Booking(
-            customer_id=customer_id,
+            guest_name=guest_name,
             slot_id=slot_id,
             party_size=party_size,
             idempotency_key=idempotency_key,

@@ -18,7 +18,8 @@ class BookingSlotDTO:
 @dataclass(frozen=True, slots=True)
 class BookingDTO:
     id: UUID
-    customer_id: UUID
+    # Who the table is under. There is no CRM account behind a booking.
+    guest_name: str
     slot_id: UUID
     party_size: int
     created_at: datetime

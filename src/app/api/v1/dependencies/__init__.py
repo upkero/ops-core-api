@@ -52,7 +52,7 @@ def get_customer_service(session: DBSessionDep) -> CustomerService:
 
 
 def get_booking_service(session: DBSessionDep) -> BookingService:
-    return BookingService(SqlAlchemyBookingRepository(session), SqlAlchemyCustomerRepository(session))
+    return BookingService(SqlAlchemyBookingRepository(session))
 
 
 def get_pricing_service(session: DBSessionDep, container: ContainerDep) -> PricingService:

@@ -27,7 +27,7 @@ async def create_booking(
     # Availability and capacity rules live in the service; the router only
     # translates schema -> arguments -> schema.
     booking = await service.create_booking(
-        customer_id=body.customer_id,
+        guest_name=body.guest_name,
         slot_id=body.slot_id,
         party_size=body.party_size,
         idempotency_key=idempotency_key,

@@ -12,6 +12,7 @@ from decimal import Decimal
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.app.contracts.enums import ResourceType
@@ -158,23 +159,43 @@ async def test_search_excludes_chunks_from_another_model(
 
 
 async def test_booking_marks_the_slot_taken_in_the_database(session: AsyncSession) -> None:
-    customer = Customer(name="Anna Petrova")
     slot = BookingSlot(
         resource_type=ResourceType.TABLE,
         slot_date=date(2026, 8, 1),
         slot_time=time(19, 0),
         capacity=4,
     )
-    session.add_all([customer, slot])
+    session.add(slot)
     await session.flush()
 
     bookings = SqlAlchemyBookingRepository(session)
-    service = BookingService(bookings, SqlAlchemyCustomerRepository(session))
-    await service.create_booking(customer.id, slot.id, party_size=2)
+    service = BookingService(bookings)
+    await service.create_booking("Dmitri Volkov", slot.id, party_size=2)
 
     assert (await bookings.list_available_slots(None, None, PaginationParams())).items == []
     with pytest.raises(SlotUnavailableError):
-        await service.create_booking(customer.id, slot.id, party_size=2)
+        await service.create_booking("Dmitri Volkov", slot.id, party_size=2)
+
+
+async def test_the_idempotency_key_is_unique_in_the_database(session: AsyncSession) -> None:
+    # The application checks for a replay first, but the unique index is what
+    # makes two simultaneous retries impossible rather than merely unlikely.
+    slots = [
+        BookingSlot(
+            resource_type=ResourceType.TABLE,
+            slot_date=date(2026, 8, 2),
+            slot_time=time(19, index),
+            capacity=4,
+        )
+        for index in range(2)
+    ]
+    session.add_all(slots)
+    await session.flush()
+    bookings = SqlAlchemyBookingRepository(session)
+
+    await bookings.create_booking("Dmitri Volkov", slots[0].id, 2, idempotency_key="same-key")
+    with pytest.raises(IntegrityError):
+        await bookings.create_booking("Dmitri Volkov", slots[1].id, 2, idempotency_key="same-key")
 
 
 async def test_pagination_counts_the_filtered_set_in_sql(session: AsyncSession) -> None:

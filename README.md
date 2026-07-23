@@ -16,7 +16,7 @@ but it stands on its own — a plain HTTP API with no agent framework anywhere i
 | Capability | Detail |
 |---|---|
 | CRM | Customer lookup by id and case-insensitive name search |
-| Bookings | Availability listing and booking creation, with the "one party per slot" rule enforced in the service layer *and* by a database constraint |
+| Bookings | Availability listing and booking creation under a guest name, with the "one party per slot" rule enforced in the service layer *and* by a database constraint |
 | Pricing | Quote for a quantity of a service, with volume discounts applied by an interchangeable policy |
 | Knowledge base | Documents are chunked and embedded on write; search embeds the query and finds the nearest chunks with pgvector's `<=>` operator |
 
@@ -108,7 +108,7 @@ curl "localhost:8000/api/v1/pricing?service=Deep%20Tissue%20Massage&quantity=6"
 # {"service_name":"Deep Tissue Massage","unit_price":"120.00","quantity":6,
 #  "subtotal":"720.00","discount_percent":"10","discount_amount":"72.00","total":"648.00"}
 
-# Register a caller who is not in the system yet
+# Register a CRM account (used by the sales flow, not needed to book a table)
 curl -X POST localhost:8000/api/v1/customers \
   -H "X-API-Key: $API_KEY" -H 'Content-Type: application/json' \
   -d '{"name":"Priya Raman","notes":"Called about a table on Friday."}'
@@ -181,6 +181,21 @@ repository adds paging by passing its query to the helper — there is no per-en
 
 `POST /documents/search` is deliberately *not* paginated: it takes `top_k` because relevance
 ranking is not a collection you walk, and the second page of a vector search is rarely useful.
+
+### Bookings carry a name, not an account
+
+`POST /bookings` takes a `guest_name` and a slot. It does **not** reference a customer, and there
+is no foreign key between the two.
+
+That is a deliberate domain split rather than a shortcut. `Customer` models a CRM account with a
+lifecycle — `lead`, `active`, `churned` — which the sales and MCP flows need. A table reserved by
+phone has no account behind it: the restaurant needs a name for the evening and nothing more.
+Forcing every reservation through find-or-create would invent accounts nobody asked for, and would
+put a lookup in the middle of a live call.
+
+Keeping the name on the booking also records what was actually said. If a customer is later renamed,
+past bookings keep the name the table was reserved under; reading it through a foreign key would
+rewrite history.
 
 ### Retrying a booking
 
@@ -442,6 +457,21 @@ docker compose up --build
 `POST /documents/search` намеренно **не** пагинируется: там `top_k`, потому что ранжирование по
 релевантности — не коллекция, которую листают, и вторая страница векторного поиска почти всегда
 бесполезна.
+
+### Бронь несёт имя, а не аккаунт
+
+`POST /bookings` принимает `guest_name` и слот. Он **не** ссылается на клиента, внешнего ключа
+между ними нет.
+
+Это осознанное разделение доменов, а не срезанный угол. `Customer` — это CRM-аккаунт с жизненным
+циклом (`lead`, `active`, `churned`), нужный sales- и MCP-флоу. За столиком, забронированным по
+телефону, никакого аккаунта нет: ресторану нужно имя на вечер и больше ничего. Прогонять каждую
+бронь через find-or-create значило бы плодить аккаунты, которых никто не просил, и ставить лишний
+lookup в середину живого звонка.
+
+Хранение имени прямо на брони ещё и фиксирует то, что было сказано. Если клиента потом переименуют,
+прошлые брони останутся на то имя, под которым бронировали стол; чтение через внешний ключ переписало
+бы историю задним числом.
 
 ### Повтор брони
 

@@ -121,7 +121,7 @@ def build_app(
     application.state.container = StubContainer(embedding_client=embedding_client)
 
     application.dependency_overrides[get_customer_service] = lambda: CustomerService(customers)
-    application.dependency_overrides[get_booking_service] = lambda: BookingService(slots, customers)
+    application.dependency_overrides[get_booking_service] = lambda: BookingService(slots)
     application.dependency_overrides[get_pricing_service] = lambda: PricingService(
         pricing, QuantityTierDiscountPolicy()
     )

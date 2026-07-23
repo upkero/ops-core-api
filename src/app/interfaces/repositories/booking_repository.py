@@ -34,7 +34,7 @@ class BookingRepository(ABC):
     @abstractmethod
     async def create_booking(
         self,
-        customer_id: UUID,
+        guest_name: str,
         slot_id: UUID,
         party_size: int,
         idempotency_key: str | None = None,

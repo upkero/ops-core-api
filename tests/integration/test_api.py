@@ -82,31 +82,28 @@ async def test_list_booking_slots_rejects_an_unknown_resource_type(client: Async
 
 async def test_create_booking_returns_201_and_removes_the_slot(
     client: AsyncClient,
-    customers: FakeCustomerRepository,
     slots: FakeBookingRepository,
     auth_headers: dict[str, str],
 ) -> None:
-    customer = customers.customers[0]
     slot = next(iter(slots.slots.values()))
-    body = {"customer_id": str(customer.id), "slot_id": str(slot.id), "party_size": 2}
+    body = {"guest_name": "Dmitri Volkov", "slot_id": str(slot.id), "party_size": 2}
 
     created = await client.post("/api/v1/bookings", json=body, headers=auth_headers)
     remaining = await client.get("/api/v1/booking-slots")
 
     assert created.status_code == 201
     assert created.json()["party_size"] == 2
+    assert created.json()["guest_name"] == "Dmitri Volkov"
     assert str(slot.id) not in [item["id"] for item in remaining.json()["items"]]
 
 
 async def test_booking_the_same_slot_twice_conflicts(
     client: AsyncClient,
-    customers: FakeCustomerRepository,
     slots: FakeBookingRepository,
     auth_headers: dict[str, str],
 ) -> None:
-    customer = customers.customers[0]
     slot = next(iter(slots.slots.values()))
-    body = {"customer_id": str(customer.id), "slot_id": str(slot.id), "party_size": 2}
+    body = {"guest_name": "Dmitri Volkov", "slot_id": str(slot.id), "party_size": 2}
 
     await client.post("/api/v1/bookings", json=body, headers=auth_headers)
     conflict = await client.post("/api/v1/bookings", json=body, headers=auth_headers)
@@ -117,13 +114,11 @@ async def test_booking_the_same_slot_twice_conflicts(
 
 async def test_booking_beyond_capacity_conflicts(
     client: AsyncClient,
-    customers: FakeCustomerRepository,
     slots: FakeBookingRepository,
     auth_headers: dict[str, str],
 ) -> None:
-    customer = customers.customers[0]
     slot = next(slot for slot in slots.slots.values() if slot.capacity == 2)
-    body = {"customer_id": str(customer.id), "slot_id": str(slot.id), "party_size": 3}
+    body = {"guest_name": "Dmitri Volkov", "slot_id": str(slot.id), "party_size": 3}
 
     response = await client.post("/api/v1/bookings", json=body, headers=auth_headers)
 
@@ -133,12 +128,11 @@ async def test_booking_beyond_capacity_conflicts(
 
 async def test_booking_rejects_a_zero_party_size(
     client: AsyncClient,
-    customers: FakeCustomerRepository,
     slots: FakeBookingRepository,
     auth_headers: dict[str, str],
 ) -> None:
     body = {
-        "customer_id": str(customers.customers[0].id),
+        "guest_name": "Dmitri Volkov",
         "slot_id": str(next(iter(slots.slots))),
         "party_size": 0,
     }

@@ -9,15 +9,15 @@ import pytest
 from httpx import AsyncClient
 
 from tests.conftest import TEST_API_KEY
-from tests.fakes import FakeBookingRepository, FakeCustomerRepository
+from tests.fakes import FakeBookingRepository
 
 ORIGIN = "http://localhost:3000"
 
 
 @pytest.fixture
-def booking_body(customers: FakeCustomerRepository, slots: FakeBookingRepository) -> dict[str, object]:
+def booking_body(slots: FakeBookingRepository) -> dict[str, object]:
     return {
-        "customer_id": str(customers.customers[0].id),
+        "guest_name": "Dmitri Volkov",
         "slot_id": str(next(iter(slots.slots))),
         "party_size": 2,
     }

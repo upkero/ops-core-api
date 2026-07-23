@@ -109,14 +109,14 @@ class FakeBookingRepository(BookingRepository):
 
     async def create_booking(
         self,
-        customer_id: UUID,
+        guest_name: str,
         slot_id: UUID,
         party_size: int,
         idempotency_key: str | None = None,
     ) -> BookingDTO:
         booking = BookingDTO(
             id=uuid4(),
-            customer_id=customer_id,
+            guest_name=guest_name,
             slot_id=slot_id,
             party_size=party_size,
             created_at=datetime(2026, 7, 22, tzinfo=UTC),

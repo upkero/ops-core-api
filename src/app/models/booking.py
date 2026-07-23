@@ -42,7 +42,13 @@ class Booking(Base):
     __table_args__ = (CheckConstraint("party_size > 0", name="ck_booking_party_size_positive"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    customer_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("customer.id", ondelete="CASCADE"), index=True)
+    # A booking is a table under a name, nothing more. There is deliberately no
+    # link to the CRM Customer: that entity models an account with a lifecycle
+    # (lead, active, churned) for the sales and MCP flows, and a phone
+    # reservation has no account behind it. Keeping the name here also records
+    # what was actually said at the time, rather than whatever the account is
+    # renamed to later.
+    guest_name: Mapped[str] = mapped_column(String(200), index=True)
     # Unique: the "one booking per slot" rule is enforced by the service *and*
     # by the database, so a race the application logic misses still cannot
     # produce a double booking.
