@@ -235,10 +235,16 @@ distinct:
 | Retry of your own request | `201` with the original booking |
 | Someone else took the slot | `409 slot_unavailable` |
 | Same key, different booking details | `409 idempotency_key_reused` |
+| Same key, after that booking was cancelled | `409 idempotency_key_consumed` |
 
 The key is stored on the booking row under a unique index, so two retries arriving at the same
 instant cannot both insert — the database refuses the second rather than the application hoping to
 notice in time.
+
+A key is spent once and stays spent. Booking, cancelling and booking again inside one call needs a
+fresh key for the second booking: replaying the old one would return the cancelled booking with a
+`201`, telling the caller the table is reserved while the slot sits free. That is the reason for
+`idempotency_key_consumed` — the request is fine, it just needs a new key.
 
 Every error uses one envelope, so a client has a single shape to handle:
 
@@ -511,9 +517,15 @@ lookup в середину живого звонка.
 | Повтор своего же запроса | `201` с исходной бронью |
 | Слот занял кто-то другой | `409 slot_unavailable` |
 | Тот же ключ, другие параметры | `409 idempotency_key_reused` |
+| Тот же ключ после отмены этой брони | `409 idempotency_key_consumed` |
 
 Ключ лежит в строке брони под уникальным индексом, поэтому два одновременных ретрая физически не
 могут вставиться оба — второй отклоняет база, а не приложение, надеющееся успеть заметить.
+
+Ключ расходуется один раз и навсегда. Если в одном звонке забронировать, отменить и забронировать
+снова, на вторую бронь нужен новый ключ: повтор старого вернул бы отменённую бронь с кодом `201`,
+то есть сказал бы «стол забронирован», пока стол свободен. Ради этого случая и есть
+`idempotency_key_consumed` — с запросом всё в порядке, ему просто нужен новый ключ.
 
 Все ошибки приходят в одном конверте:
 

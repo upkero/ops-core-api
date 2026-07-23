@@ -7,7 +7,12 @@ exactly like someone else having taken the slot.
 
 import pytest
 
-from src.app.exceptions.domain import IdempotencyKeyReusedError, SlotUnavailableError
+from src.app.contracts.enums import BookingStatus
+from src.app.exceptions.domain import (
+    IdempotencyKeyConsumedError,
+    IdempotencyKeyReusedError,
+    SlotUnavailableError,
+)
 from src.app.services.booking import BookingService
 from tests.fakes import FakeBookingRepository, make_slot
 
@@ -87,3 +92,41 @@ async def test_the_replay_check_runs_before_any_other_validation(service, slot) 
 
     assert service._bookings.slots[slot.id].is_available is False  # noqa: SLF001
     assert await service.create_booking(GUEST, slot.id, 2, idempotency_key=KEY) == first
+
+
+class TestKeyAfterCancellation:
+    """book → cancel → book within one call.
+
+    The dangerous version of this is silent: replaying the key returns the
+    cancelled booking with a success code, so the caller is told the table is
+    reserved while the slot sits free and no booking exists.
+    """
+
+    async def test_replaying_a_cancelled_booking_is_refused(self, service: BookingService, slot) -> None:  # type: ignore[no-untyped-def]
+        booking = await service.create_booking(GUEST, slot.id, 2, idempotency_key=KEY)
+        await service.cancel_booking(booking.id)
+
+        with pytest.raises(IdempotencyKeyConsumedError) as error:
+            await service.create_booking(GUEST, slot.id, 2, idempotency_key=KEY)
+
+        assert error.value.status_code == 409
+
+    async def test_a_fresh_key_books_the_freed_slot(self, service: BookingService, slot) -> None:  # type: ignore[no-untyped-def]
+        first = await service.create_booking(GUEST, slot.id, 2, idempotency_key=KEY)
+        await service.cancel_booking(first.id)
+
+        second = await service.create_booking(GUEST, slot.id, 2, idempotency_key="call-42-attempt-2")
+
+        assert second.id != first.id
+        assert second.status is BookingStatus.ACTIVE
+        assert service._bookings.slots[slot.id].is_available is False  # noqa: SLF001
+
+    async def test_the_refusal_leaves_the_slot_bookable(self, service: BookingService, slot) -> None:  # type: ignore[no-untyped-def]
+        # The 409 must not consume the slot as a side effect.
+        booking = await service.create_booking(GUEST, slot.id, 2, idempotency_key=KEY)
+        await service.cancel_booking(booking.id)
+
+        with pytest.raises(IdempotencyKeyConsumedError):
+            await service.create_booking(GUEST, slot.id, 2, idempotency_key=KEY)
+
+        assert service._bookings.slots[slot.id].is_available is True  # noqa: SLF001

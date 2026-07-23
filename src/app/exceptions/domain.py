@@ -29,6 +29,20 @@ class SlotUnavailableError(BaseAppException):
     default_detail = "Booking slot is no longer available."
 
 
+class IdempotencyKeyConsumedError(BaseAppException):
+    """Raised when a retry token is replayed after its booking was cancelled.
+
+    Replaying it would hand back a cancelled booking as though the table had
+    just been reserved — no error, no reservation, and a caller told otherwise.
+    Distinct from IdempotencyKeyReusedError because the remedy differs: nothing
+    is wrong with the request, it just needs a fresh key.
+    """
+
+    status_code = 409
+    error_code = "idempotency_key_consumed"
+    default_detail = "The booking made with this Idempotency-Key was cancelled. Use a new key to book again."
+
+
 class IdempotencyKeyReusedError(BaseAppException):
     """Raised when a retry token is replayed with different parameters.
 

@@ -250,3 +250,29 @@ class TestCancellation:
         )
 
         assert (await anonymous_client.delete(f"/api/v1/bookings/{created.json()['id']}")).status_code == 401
+
+    async def test_rebooking_after_cancelling_needs_a_fresh_key(
+        self,
+        client: AsyncClient,
+        slots: FakeBookingRepository,
+        auth_headers: dict[str, str],
+    ) -> None:
+        # "Actually, book it again" in the same call. Replaying the key would
+        # answer 201 with the cancelled booking and no table reserved.
+        body = {"guest_name": "Dmitri Volkov", "slot_id": str(next(iter(slots.slots))), "party_size": 2}
+        used = {**auth_headers, "Idempotency-Key": "call-7"}
+
+        created = await client.post("/api/v1/bookings", json=body, headers=used)
+        await client.delete(f"/api/v1/bookings/{created.json()['id']}", headers=auth_headers)
+
+        replayed = await client.post("/api/v1/bookings", json=body, headers=used)
+        rebooked = await client.post(
+            "/api/v1/bookings",
+            json=body,
+            headers={**auth_headers, "Idempotency-Key": "call-7-attempt-2"},
+        )
+
+        assert replayed.status_code == 409
+        assert replayed.json()["error_code"] == "idempotency_key_consumed"
+        assert rebooked.status_code == 201
+        assert rebooked.json()["id"] != created.json()["id"]

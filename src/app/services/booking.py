@@ -6,6 +6,7 @@ from src.app.contracts.enums import BookingStatus, ResourceType
 from src.app.contracts.pagination import PageDTO, PaginationParams
 from src.app.exceptions.domain import (
     EntityNotFoundError,
+    IdempotencyKeyConsumedError,
     IdempotencyKeyReusedError,
     InvalidInputError,
     SlotCapacityExceededError,
@@ -87,6 +88,12 @@ class BookingService:
                     party_size,
                 ):
                     raise IdempotencyKeyReusedError()
+                # Only an active booking may be replayed. Handing back a
+                # cancelled one would answer "booked" with a reservation that
+                # no longer exists, leaving the slot free and the caller
+                # believing they have a table.
+                if replayed.status is BookingStatus.CANCELLED:
+                    raise IdempotencyKeyConsumedError()
                 return replayed
 
         # Locking first is what makes the checks below trustworthy: a competing
