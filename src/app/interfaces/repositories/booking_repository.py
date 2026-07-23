@@ -1,10 +1,10 @@
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
 from datetime import date
 from uuid import UUID
 
 from src.app.contracts.booking import BookingDTO, BookingSlotDTO
 from src.app.contracts.enums import ResourceType
+from src.app.contracts.pagination import PageDTO, PaginationParams
 
 
 class BookingRepository(ABC):
@@ -16,8 +16,8 @@ class BookingRepository(ABC):
         self,
         slot_date: date | None,
         resource_type: ResourceType | None,
-        limit: int,
-    ) -> Sequence[BookingSlotDTO]: ...
+        params: PaginationParams,
+    ) -> PageDTO[BookingSlotDTO]: ...
 
     @abstractmethod
     async def lock_slot(self, slot_id: UUID) -> BookingSlotDTO | None:

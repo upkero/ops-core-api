@@ -78,9 +78,9 @@ Reads are open. Writes require the `X-API-Key` header (see [Security](#security)
 | Method | Path | Auth |
 |---|---|---|
 | `GET` | `/health` | open |
-| `GET` | `/api/v1/customers?search=&limit=` | open |
+| `GET` | `/api/v1/customers?search=&limit=&offset=` | open |
 | `GET` | `/api/v1/customers/{id}` | open |
-| `GET` | `/api/v1/booking-slots?date=&resource_type=&limit=` | open |
+| `GET` | `/api/v1/booking-slots?date=&resource_type=&limit=&offset=` | open |
 | `POST` | `/api/v1/bookings` | **key** |
 | `GET` | `/api/v1/pricing?service=&quantity=` | open |
 | `GET` | `/api/v1/pricing/services` | open |
@@ -99,8 +99,8 @@ curl localhost:8000/health
 # Find a customer
 curl "localhost:8000/api/v1/customers?search=anna"
 
-# Free slots for a given day
-curl "localhost:8000/api/v1/booking-slots?date=2026-07-24&resource_type=table"
+# Free slots for a given day, one page at a time
+curl "localhost:8000/api/v1/booking-slots?date=2026-07-24&resource_type=table&limit=10&offset=0"
 
 # Price six sessions — the volume discount is applied by the service layer
 curl "localhost:8000/api/v1/pricing?service=Deep%20Tissue%20Massage&quantity=6"
@@ -139,6 +139,36 @@ The last call returns the cancellation policy first:
   ]
 }
 ```
+
+### Pagination
+
+Every list endpoint returns the same envelope and takes the same `limit` / `offset` query
+parameters (`limit` defaults to 20, capped at 200):
+
+```json
+{
+  "items": [ … ],
+  "total": 56,
+  "limit": 20,
+  "offset": 0,
+  "has_more": true
+}
+```
+
+`total` is what makes a truncated result honest — without it a caller cannot tell "these are all
+the free slots" from "these are the first 20 of 56", which is how an agent ends up telling a
+customer there is nothing available. It is counted over the *same* filters that produced `items`,
+so `?resource_type=meeting_room` reports how many meeting rooms are free, not how many slots exist
+in total. `has_more` is derived from the other three; it is there because an LLM consumer follows a
+boolean far more reliably than it does arithmetic.
+
+One implementation serves every collection: `PaginationParams` and `PageDTO` in
+`contracts/pagination.py`, the `paginate()` helper in `repositories/pagination.py` that counts and
+slices whatever `select()` a repository hands it, and the generic `Page[T]` response schema. A
+repository adds paging by passing its query to the helper — there is no per-endpoint paging code.
+
+`POST /documents/search` is deliberately *not* paginated: it takes `top_k` because relevance
+ranking is not a collection you walk, and the second page of a vector search is rarely useful.
 
 Every error uses one envelope, so a client has a single shape to handle:
 
@@ -298,7 +328,8 @@ uv run python -m src.app.cli.seed     # seed demo data (idempotent; --force to r
 - Rate-limit counters live in process memory, so they reset on restart and would need Redis behind
   more than one worker.
 - A single shared write key, not per-user auth — the right weight for a public read-only demo.
-- No pagination; list endpoints take a `limit` and cap it.
+- Offset-based paging. Fine at this size; a cursor would be the answer for a large, rapidly
+  changing collection, where an insert can shift rows between pages.
 
 ---
 
@@ -354,6 +385,26 @@ docker compose up --build
 
 Список путей, примеры `curl` и формат ответов — в английской части выше
 ([API](#api)); они одинаковы для обеих версий. Чтение открыто, запись требует заголовка `X-API-Key`.
+
+### Пагинация
+
+Все списочные эндпоинты принимают одинаковые `limit` / `offset` (по умолчанию 20, потолок 200) и
+возвращают один конверт: `{items, total, limit, offset, has_more}`.
+
+`total` — это то, что делает усечённый ответ честным: без него клиент не отличает «это все свободные
+слоты» от «это первые 20 из 56», и агент отвечает клиенту «свободного нет», хотя оно есть. Считается
+он по тем же фильтрам, что и `items`, поэтому `?resource_type=meeting_room` показывает число
+свободных переговорок, а не всех слотов вообще. `has_more` выводится из остальных трёх — он есть
+потому, что LLM-потребитель надёжно читает булево значение и заметно хуже считает арифметику.
+
+Реализация одна на все коллекции: `PaginationParams` и `PageDTO` в `contracts/pagination.py`,
+хелпер `paginate()` в `repositories/pagination.py`, который считает и нарезает любой переданный
+`select()`, и дженерик-схема `Page[T]`. Репозиторий подключает пагинацию, просто отдав свой запрос в
+хелпер — кода пагинации на каждый эндпоинт нет.
+
+`POST /documents/search` намеренно **не** пагинируется: там `top_k`, потому что ранжирование по
+релевантности — не коллекция, которую листают, и вторая страница векторного поиска почти всегда
+бесполезна.
 
 Все ошибки приходят в одном конверте:
 
@@ -457,4 +508,5 @@ Postgres (запрос `<=>`, блокировка `FOR UPDATE`, экранир�
 
 - Счётчики лимитов в памяти процесса: сбрасываются при рестарте, для нескольких воркеров нужен Redis.
 - Один общий ключ на запись, а не полноценная авторизация пользователей.
-- Нет пагинации; списочные эндпоинты принимают `limit` и ограничивают его сверху.
+- Пагинация по offset. На таких объёмах это правильный выбор; для большой и часто меняющейся
+  коллекции понадобился бы курсор — при вставке строки сдвигаются между страницами.

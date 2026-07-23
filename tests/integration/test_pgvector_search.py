@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from src.app.contracts.enums import ResourceType
 from src.app.contracts.knowledge import EMBEDDING_DIMENSIONS, NewChunk, NewDocument
+from src.app.contracts.pagination import PaginationParams
 from src.app.exceptions.domain import SlotUnavailableError
 from src.app.llm.hashing_embedding_client import HashingEmbeddingClient
 from src.app.models import Base
@@ -171,9 +172,45 @@ async def test_booking_marks_the_slot_taken_in_the_database(session: AsyncSessio
     service = BookingService(bookings, SqlAlchemyCustomerRepository(session))
     await service.create_booking(customer.id, slot.id, party_size=2)
 
-    assert await bookings.list_available_slots(None, None, limit=10) == []
+    assert (await bookings.list_available_slots(None, None, PaginationParams())).items == []
     with pytest.raises(SlotUnavailableError):
         await service.create_booking(customer.id, slot.id, party_size=2)
+
+
+async def test_pagination_counts_the_filtered_set_in_sql(session: AsyncSession) -> None:
+    # The COUNT runs over the caller's own statement. If it ever stopped doing
+    # that, `total` would report every slot in the table instead of the five
+    # that match the filter, and a client would page into nothing.
+    session.add_all(
+        [
+            BookingSlot(
+                resource_type=ResourceType.TABLE if index % 2 else ResourceType.MEETING_ROOM,
+                slot_date=date(2026, 8, 1),
+                slot_time=time(9 + index, 0),
+                capacity=4,
+            )
+            for index in range(10)
+        ]
+    )
+    await session.flush()
+    repository = SqlAlchemyBookingRepository(session)
+
+    page = await repository.list_available_slots(
+        date(2026, 8, 1),
+        ResourceType.TABLE,
+        PaginationParams(limit=2, offset=0),
+    )
+    last = await repository.list_available_slots(
+        date(2026, 8, 1),
+        ResourceType.TABLE,
+        PaginationParams(limit=2, offset=4),
+    )
+
+    assert page.total == 5
+    assert len(page.items) == 2
+    assert page.has_more is True
+    assert len(last.items) == 1
+    assert last.has_more is False
 
 
 async def test_customer_search_escapes_sql_wildcards(session: AsyncSession) -> None:
@@ -182,9 +219,9 @@ async def test_customer_search_escapes_sql_wildcards(session: AsyncSession) -> N
     repository = SqlAlchemyCustomerRepository(session)
 
     # A literal '%' must match only the name containing it, not act as a wildcard.
-    matched = await repository.search_by_name("100%", limit=10)
+    matched = await repository.search_by_name("100%", PaginationParams(limit=10))
 
-    assert [customer.name for customer in matched] == ["Anna 100% Wellness"]
+    assert [customer.name for customer in matched.items] == ["Anna 100% Wellness"]
 
 
 async def test_pricing_lookup_is_case_insensitive(session: AsyncSession) -> None:

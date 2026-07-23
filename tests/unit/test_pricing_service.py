@@ -2,6 +2,7 @@ from decimal import Decimal
 
 import pytest
 
+from src.app.contracts.pagination import PaginationParams
 from src.app.exceptions.domain import EntityNotFoundError
 from src.app.services.pricing import NoDiscountPolicy, PricingService, QuantityTierDiscountPolicy
 from tests.fakes import FakePricingRepository, make_pricing_item
@@ -79,6 +80,6 @@ async def test_rounding_is_half_up_rather_than_bankers() -> None:
 async def test_list_services_is_sorted_by_name() -> None:
     repository = FakePricingRepository([make_pricing_item("Zebra"), make_pricing_item("Alpha")])
 
-    items = await PricingService(repository, NoDiscountPolicy()).list_services()
+    items = await PricingService(repository, NoDiscountPolicy()).list_services(PaginationParams())
 
-    assert [item.service_name for item in items] == ["Alpha", "Zebra"]
+    assert [item.service_name for item in items.items] == ["Alpha", "Zebra"]

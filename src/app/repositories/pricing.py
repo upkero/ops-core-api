@@ -1,11 +1,11 @@
-from collections.abc import Sequence
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.app.contracts.pagination import PageDTO, PaginationParams
 from src.app.contracts.pricing import PricingItemDTO
 from src.app.interfaces.repositories.pricing_repository import PricingRepository
 from src.app.models.pricing import PricingItem
+from src.app.repositories.pagination import paginate
 
 
 def _to_dto(row: PricingItem) -> PricingItemDTO:
@@ -26,6 +26,6 @@ class SqlAlchemyPricingRepository(PricingRepository):
         row = await self._session.scalar(stmt)
         return _to_dto(row) if row is not None else None
 
-    async def list_all(self) -> Sequence[PricingItemDTO]:
-        result = await self._session.scalars(select(PricingItem).order_by(PricingItem.service_name))
-        return [_to_dto(row) for row in result]
+    async def list_all(self, params: PaginationParams) -> PageDTO[PricingItemDTO]:
+        stmt = select(PricingItem).order_by(PricingItem.service_name)
+        return await paginate(self._session, stmt, params, _to_dto)

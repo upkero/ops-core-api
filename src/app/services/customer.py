@@ -1,7 +1,7 @@
-from collections.abc import Sequence
 from uuid import UUID
 
 from src.app.contracts.customer import CustomerDTO
+from src.app.contracts.pagination import PageDTO, PaginationParams
 from src.app.exceptions.domain import EntityNotFoundError
 from src.app.interfaces.repositories.customer_repository import CustomerRepository
 
@@ -16,7 +16,7 @@ class CustomerService:
             raise EntityNotFoundError(f"Customer '{customer_id}' was not found.")
         return customer
 
-    async def search(self, query: str | None, limit: int) -> Sequence[CustomerDTO]:
+    async def search(self, query: str | None, params: PaginationParams) -> PageDTO[CustomerDTO]:
         if query is None or not query.strip():
-            return await self._repository.list_all(limit)
-        return await self._repository.search_by_name(query.strip(), limit)
+            return await self._repository.list_all(params)
+        return await self._repository.search_by_name(query.strip(), params)

@@ -1,6 +1,6 @@
-from collections.abc import Sequence
 from decimal import ROUND_HALF_UP, Decimal
 
+from src.app.contracts.pagination import PageDTO, PaginationParams
 from src.app.contracts.pricing import PriceQuoteDTO, PricingItemDTO
 from src.app.exceptions.domain import EntityNotFoundError
 from src.app.interfaces.pricing.discount_policy import DiscountPolicy
@@ -18,8 +18,8 @@ class PricingService:
         self._repository = repository
         self._discount_policy = discount_policy
 
-    async def list_services(self) -> Sequence[PricingItemDTO]:
-        return await self._repository.list_all()
+    async def list_services(self, params: PaginationParams) -> PageDTO[PricingItemDTO]:
+        return await self._repository.list_all(params)
 
     async def quote(self, service_name: str, quantity: int) -> PriceQuoteDTO:
         if quantity < 1:

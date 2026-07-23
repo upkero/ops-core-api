@@ -1,10 +1,11 @@
 from collections.abc import AsyncGenerator
 from typing import Annotated
 
-from fastapi import Depends, Request
+from fastapi import Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.bootstrap.container import ApplicationContainer
+from src.app.contracts.pagination import DEFAULT_LIMIT, MAX_LIMIT, PaginationParams
 from src.app.repositories.booking import SqlAlchemyBookingRepository
 from src.app.repositories.customer import SqlAlchemyCustomerRepository
 from src.app.repositories.knowledge import SqlAlchemyKnowledgeRepository
@@ -31,8 +32,17 @@ async def get_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]
         yield session
 
 
+def get_pagination(
+    limit: Annotated[int, Query(ge=1, le=MAX_LIMIT, description="Rows per page.")] = DEFAULT_LIMIT,
+    offset: Annotated[int, Query(ge=0, description="Rows to skip.")] = 0,
+) -> PaginationParams:
+    """One definition of the paging query parameters, shared by every list endpoint."""
+    return PaginationParams(limit=limit, offset=offset)
+
+
 ContainerDep = Annotated[ApplicationContainer, Depends(get_container)]
 DBSessionDep = Annotated[AsyncSession, Depends(get_db_session)]
+PaginationDep = Annotated[PaginationParams, Depends(get_pagination)]
 
 
 # Services are assembled per request because they wrap the request-scoped

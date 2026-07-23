@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
 from uuid import UUID
 
 from src.app.contracts.customer import CustomerDTO
+from src.app.contracts.pagination import PageDTO, PaginationParams
 
 
 class CustomerRepository(ABC):
@@ -16,7 +16,7 @@ class CustomerRepository(ABC):
     async def get_by_id(self, customer_id: UUID) -> CustomerDTO | None: ...
 
     @abstractmethod
-    async def search_by_name(self, query: str, limit: int) -> Sequence[CustomerDTO]: ...
+    async def search_by_name(self, query: str, params: PaginationParams) -> PageDTO[CustomerDTO]: ...
 
     @abstractmethod
-    async def list_all(self, limit: int) -> Sequence[CustomerDTO]: ...
+    async def list_all(self, params: PaginationParams) -> PageDTO[CustomerDTO]: ...

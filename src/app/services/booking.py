@@ -1,9 +1,9 @@
-from collections.abc import Sequence
 from datetime import date
 from uuid import UUID
 
 from src.app.contracts.booking import BookingDTO, BookingSlotDTO
 from src.app.contracts.enums import ResourceType
+from src.app.contracts.pagination import PageDTO, PaginationParams
 from src.app.exceptions.domain import EntityNotFoundError, SlotCapacityExceededError, SlotUnavailableError
 from src.app.interfaces.repositories.booking_repository import BookingRepository
 from src.app.interfaces.repositories.customer_repository import CustomerRepository
@@ -24,9 +24,9 @@ class BookingService:
         self,
         slot_date: date | None,
         resource_type: ResourceType | None,
-        limit: int,
-    ) -> Sequence[BookingSlotDTO]:
-        return await self._bookings.list_available_slots(slot_date, resource_type, limit)
+        params: PaginationParams,
+    ) -> PageDTO[BookingSlotDTO]:
+        return await self._bookings.list_available_slots(slot_date, resource_type, params)
 
     async def create_booking(self, customer_id: UUID, slot_id: UUID, party_size: int) -> BookingDTO:
         if await self._customers.get_by_id(customer_id) is None:

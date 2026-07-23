@@ -2,6 +2,7 @@ from uuid import uuid4
 
 import pytest
 
+from src.app.contracts.pagination import PaginationParams
 from src.app.exceptions.domain import EntityNotFoundError, SlotCapacityExceededError, SlotUnavailableError
 from src.app.services.booking import BookingService
 from tests.fakes import FakeBookingRepository, FakeCustomerRepository, make_customer, make_slot
@@ -103,6 +104,6 @@ async def test_list_available_slots_hides_taken_ones(customer) -> None:  # type:
     free, taken = make_slot(), make_slot(is_available=False)
     service = BookingService(FakeBookingRepository([free, taken]), FakeCustomerRepository([customer]))
 
-    available = await service.list_available_slots(None, None, limit=10)
+    available = await service.list_available_slots(None, None, PaginationParams(limit=10))
 
-    assert [slot.id for slot in available] == [free.id]
+    assert [slot.id for slot in available.items] == [free.id]

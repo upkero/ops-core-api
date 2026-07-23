@@ -1,4 +1,3 @@
-from collections.abc import Sequence
 from datetime import date
 from uuid import UUID
 
@@ -7,8 +6,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.contracts.booking import BookingDTO, BookingSlotDTO
 from src.app.contracts.enums import ResourceType
+from src.app.contracts.pagination import PageDTO, PaginationParams
 from src.app.interfaces.repositories.booking_repository import BookingRepository
 from src.app.models.booking import Booking, BookingSlot
+from src.app.repositories.pagination import paginate
 
 
 def _slot_to_dto(row: BookingSlot) -> BookingSlotDTO:
@@ -30,16 +31,17 @@ class SqlAlchemyBookingRepository(BookingRepository):
         self,
         slot_date: date | None,
         resource_type: ResourceType | None,
-        limit: int,
-    ) -> Sequence[BookingSlotDTO]:
+        params: PaginationParams,
+    ) -> PageDTO[BookingSlotDTO]:
         stmt = select(BookingSlot).where(BookingSlot.is_available.is_(True))
         if slot_date is not None:
             stmt = stmt.where(BookingSlot.slot_date == slot_date)
         if resource_type is not None:
             stmt = stmt.where(BookingSlot.resource_type == resource_type)
-        stmt = stmt.order_by(BookingSlot.slot_date, BookingSlot.slot_time).limit(limit)
-        result = await self._session.scalars(stmt)
-        return [_slot_to_dto(row) for row in result]
+        stmt = stmt.order_by(BookingSlot.slot_date, BookingSlot.slot_time)
+        # `total` is counted over exactly these filters, so a caller asking for
+        # Tuesday sees how many Tuesday slots exist, not how many exist overall.
+        return await paginate(self._session, stmt, params, _slot_to_dto)
 
     async def lock_slot(self, slot_id: UUID) -> BookingSlotDTO | None:
         # FOR UPDATE holds the row until the request transaction ends, so a

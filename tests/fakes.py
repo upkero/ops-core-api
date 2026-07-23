@@ -16,6 +16,7 @@ from src.app.contracts.booking import BookingDTO, BookingSlotDTO
 from src.app.contracts.customer import CustomerDTO
 from src.app.contracts.enums import CustomerStatus, ResourceType
 from src.app.contracts.knowledge import ChunkMatchDTO, DocumentDTO, NewDocument
+from src.app.contracts.pagination import PageDTO, PaginationParams
 from src.app.contracts.pricing import PricingItemDTO
 from src.app.interfaces.llm.embedding_client import EmbeddingClient
 from src.app.interfaces.repositories.booking_repository import BookingRepository
@@ -47,6 +48,16 @@ def make_slot(**overrides: object) -> BookingSlotDTO:
     return replace(base, **overrides)  # type: ignore[arg-type]
 
 
+def _page[T](items: Sequence[T], params: PaginationParams) -> PageDTO[T]:
+    """Slice in memory the way the SQL helper slices in the database."""
+    return PageDTO(
+        items=list(items)[params.offset : params.offset + params.limit],
+        total=len(items),
+        limit=params.limit,
+        offset=params.offset,
+    )
+
+
 class FakeCustomerRepository(CustomerRepository):
     def __init__(self, customers: Sequence[CustomerDTO] = ()) -> None:
         self.customers = list(customers)
@@ -54,11 +65,12 @@ class FakeCustomerRepository(CustomerRepository):
     async def get_by_id(self, customer_id: UUID) -> CustomerDTO | None:
         return next((c for c in self.customers if c.id == customer_id), None)
 
-    async def search_by_name(self, query: str, limit: int) -> Sequence[CustomerDTO]:
-        return [c for c in self.customers if query.lower() in c.name.lower()][:limit]
+    async def search_by_name(self, query: str, params: PaginationParams) -> PageDTO[CustomerDTO]:
+        found = [c for c in self.customers if query.lower() in c.name.lower()]
+        return _page(found, params)
 
-    async def list_all(self, limit: int) -> Sequence[CustomerDTO]:
-        return self.customers[:limit]
+    async def list_all(self, params: PaginationParams) -> PageDTO[CustomerDTO]:
+        return _page(self.customers, params)
 
 
 class FakeBookingRepository(BookingRepository):
@@ -71,8 +83,8 @@ class FakeBookingRepository(BookingRepository):
         self,
         slot_date: date | None,
         resource_type: ResourceType | None,
-        limit: int,
-    ) -> Sequence[BookingSlotDTO]:
+        params: PaginationParams,
+    ) -> PageDTO[BookingSlotDTO]:
         found = [
             slot
             for slot in self.slots.values()
@@ -80,7 +92,7 @@ class FakeBookingRepository(BookingRepository):
             and (slot_date is None or slot.slot_date == slot_date)
             and (resource_type is None or slot.resource_type == resource_type)
         ]
-        return sorted(found, key=lambda slot: (slot.slot_date, slot.slot_time))[:limit]
+        return _page(sorted(found, key=lambda slot: (slot.slot_date, slot.slot_time)), params)
 
     async def lock_slot(self, slot_id: UUID) -> BookingSlotDTO | None:
         self.locked.append(slot_id)
@@ -108,8 +120,8 @@ class FakePricingRepository(PricingRepository):
     async def get_by_service_name(self, service_name: str) -> PricingItemDTO | None:
         return next((i for i in self.items if i.service_name.lower() == service_name.lower()), None)
 
-    async def list_all(self) -> Sequence[PricingItemDTO]:
-        return sorted(self.items, key=lambda item: item.service_name)
+    async def list_all(self, params: PaginationParams) -> PageDTO[PricingItemDTO]:
+        return _page(sorted(self.items, key=lambda item: item.service_name), params)
 
 
 def make_pricing_item(name: str = "Deep Tissue Massage", price: str = "120.00") -> PricingItemDTO:

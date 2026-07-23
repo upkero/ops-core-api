@@ -3,22 +3,21 @@ from uuid import UUID
 
 from fastapi import APIRouter, Query
 
-from src.app.api.v1.dependencies import CustomerServiceDep
+from src.app.api.v1.dependencies import CustomerServiceDep, PaginationDep
 from src.app.schemas.customer import CustomerResponse
+from src.app.schemas.pagination import Page
 
 router = APIRouter(prefix="/customers", tags=["customers"])
 
-MAX_SEARCH_RESULTS = 50
 
-
-@router.get("", response_model=list[CustomerResponse])
+@router.get("", response_model=Page[CustomerResponse])
 async def search_customers(
     service: CustomerServiceDep,
+    pagination: PaginationDep,
     search: Annotated[str | None, Query(max_length=200, description="Case-insensitive name fragment.")] = None,
-    limit: Annotated[int, Query(ge=1, le=MAX_SEARCH_RESULTS)] = 20,
-) -> list[CustomerResponse]:
-    customers = await service.search(search, limit)
-    return [CustomerResponse.from_contract(customer) for customer in customers]
+) -> Page[CustomerResponse]:
+    page = await service.search(search, pagination)
+    return Page.from_contract(page, CustomerResponse.from_contract)
 
 
 @router.get("/{customer_id}", response_model=CustomerResponse)

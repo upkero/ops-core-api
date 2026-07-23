@@ -28,13 +28,16 @@ async def test_search_customers_by_name(client: AsyncClient) -> None:
     response = await client.get("/api/v1/customers", params={"search": "anna"})
 
     assert response.status_code == 200
-    assert [customer["name"] for customer in response.json()] == ["Anna Petrova"]
+    assert [customer["name"] for customer in response.json()["items"]] == ["Anna Petrova"]
 
 
 async def test_list_customers_without_a_query(client: AsyncClient) -> None:
     response = await client.get("/api/v1/customers")
 
-    assert len(response.json()) == 2
+    body = response.json()
+    assert len(body["items"]) == 2
+    assert body["total"] == 2
+    assert body["has_more"] is False
 
 
 async def test_get_customer_by_id(client: AsyncClient, customers: FakeCustomerRepository) -> None:
@@ -68,7 +71,7 @@ async def test_list_booking_slots_filters_by_date_and_resource(client: AsyncClie
     )
 
     assert response.status_code == 200
-    assert len(response.json()) == 2
+    assert len(response.json()["items"]) == 2
 
 
 async def test_list_booking_slots_rejects_an_unknown_resource_type(client: AsyncClient) -> None:
@@ -92,7 +95,7 @@ async def test_create_booking_returns_201_and_removes_the_slot(
 
     assert created.status_code == 201
     assert created.json()["party_size"] == 2
-    assert str(slot.id) not in [item["id"] for item in remaining.json()]
+    assert str(slot.id) not in [item["id"] for item in remaining.json()["items"]]
 
 
 async def test_booking_the_same_slot_twice_conflicts(
@@ -175,7 +178,7 @@ async def test_pricing_requires_a_service(client: AsyncClient) -> None:
 async def test_pricing_catalogue_lists_services(client: AsyncClient) -> None:
     response = await client.get("/api/v1/pricing/services")
 
-    assert [item["service_name"] for item in response.json()] == ["Deep Tissue Massage", "Nutrition Coaching"]
+    assert [item["service_name"] for item in response.json()["items"]] == ["Deep Tissue Massage", "Nutrition Coaching"]
 
 
 async def test_add_document_then_search_finds_it(client: AsyncClient, auth_headers: dict[str, str]) -> None:
