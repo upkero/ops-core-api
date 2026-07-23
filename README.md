@@ -331,6 +331,10 @@ uv run python -m src.app.cli.seed     # seed demo data (idempotent; --force to r
 - Offset-based paging. Fine at this size; a cursor would be the answer for a large, rapidly
   changing collection, where an insert can shift rows between pages.
 
+## License
+
+[MIT](LICENSE).
+
 ---
 
 # ops-core-api (русская версия)
@@ -510,3 +514,7 @@ Postgres (запрос `<=>`, блокировка `FOR UPDATE`, экранир�
 - Один общий ключ на запись, а не полноценная авторизация пользователей.
 - Пагинация по offset. На таких объёмах это правильный выбор; для большой и часто меняющейся
   коллекции понадобился бы курсор — при вставке строки сдвигаются между страницами.
+
+## Лицензия
+
+[MIT](LICENSE).
