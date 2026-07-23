@@ -19,3 +19,15 @@ class ResourceType(enum.StrEnum):
 
     TABLE = "table"
     MEETING_ROOM = "meeting_room"
+
+
+class BookingStatus(enum.StrEnum):
+    """Lifecycle of a reservation.
+
+    A cancelled booking is kept rather than deleted: the cancellation is itself
+    a fact the business needs — the published policy charges half price for
+    cancelling inside 24 hours and tracks no-shows separately.
+    """
+
+    ACTIVE = "active"
+    CANCELLED = "cancelled"

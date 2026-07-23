@@ -83,6 +83,8 @@ Reads are open. Writes require the `X-API-Key` header (see [Security](#security)
 | `POST` | `/api/v1/customers` | **key** |
 | `GET` | `/api/v1/booking-slots?date=&resource_type=&limit=&offset=` | open |
 | `POST` | `/api/v1/bookings` | **key** |
+| `GET` | `/api/v1/bookings?guest_name=&date=&status=` | **key** |
+| `DELETE` | `/api/v1/bookings/{id}` | **key** |
 | `GET` | `/api/v1/pricing?service=&quantity=` | open |
 | `GET` | `/api/v1/pricing/services` | open |
 | `POST` | `/api/v1/documents` | **key** |
@@ -196,6 +198,26 @@ put a lookup in the middle of a live call.
 Keeping the name on the booking also records what was actually said. If a customer is later renamed,
 past bookings keep the name the table was reserved under; reading it through a foreign key would
 rewrite history.
+
+### Cancelling a booking
+
+`DELETE /api/v1/bookings/{id}` cancels a reservation and puts the slot back on offer. The row is
+kept with `status: cancelled` and a `cancelled_at` rather than deleted — the cancellation is itself
+a fact the business needs, since the published policy charges half price for cancelling inside
+twenty-four hours and counts no-shows separately.
+
+`DELETE` rather than `POST /cancel` because HTTP defines it as idempotent, which is exactly what a
+dropped call needs: cancelling twice returns the same booking and the same `200`.
+
+Finding the booking to cancel is the other half — nobody reads a UUID down the phone — so
+`GET /api/v1/bookings` filters by `guest_name`, `date` and `status` (defaulting to active ones).
+**It requires the API key even when reads are public:** browsing free slots and prices is harmless,
+but a list of guest names with the times they are expected is the most sensitive read in the API.
+
+One consequence worth naming: `slot_id` cannot carry a plain `UNIQUE` constraint any more, because a
+slot may be booked, cancelled and booked again. Uniqueness is a *partial* index —
+`UNIQUE (slot_id) WHERE status = 'active'` — so the no-double-booking guarantee survives while the
+history stays.
 
 ### Retrying a booking
 
@@ -472,6 +494,25 @@ lookup в середину живого звонка.
 Хранение имени прямо на брони ещё и фиксирует то, что было сказано. Если клиента потом переименуют,
 прошлые брони останутся на то имя, под которым бронировали стол; чтение через внешний ключ переписало
 бы историю задним числом.
+
+### Отмена брони
+
+`DELETE /api/v1/bookings/{id}` отменяет бронь и возвращает слот в продажу. Строка не удаляется — у
+неё появляется `status: cancelled` и `cancelled_at`, потому что сам факт отмены нужен бизнесу:
+опубликованная политика берёт 50% при отмене менее чем за сутки и отдельно считает неявки.
+
+`DELETE`, а не `POST /cancel`, потому что HTTP определяет его идемпотентным — ровно то, что нужно
+при обрыве звонка: повторная отмена вернёт ту же бронь и тот же `200`.
+
+Вторая половина — найти, что отменять: UUID по телефону не диктуют. `GET /api/v1/bookings` ищет по
+`guest_name`, `date` и `status` (по умолчанию только активные). **Требует ключ даже при открытом
+чтении:** свободные слоты и прайс листать безобидно, а список имён гостей со временем визита —
+самое чувствительное чтение в этом API.
+
+Одно следствие стоит назвать: на `slot_id` больше нельзя вешать обычный `UNIQUE`, потому что слот
+можно забронировать, отменить и забронировать снова. Уникальность стала частичным индексом —
+`UNIQUE (slot_id) WHERE status = 'active'` — так что гарантия «без двойных броней» сохраняется, а
+история остаётся.
 
 ### Повтор брони
 

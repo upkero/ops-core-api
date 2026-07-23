@@ -29,6 +29,11 @@ _ALWAYS_OPEN_PATHS = frozenset({"/health", "/docs", "/redoc", "/openapi.json", "
 # since it is the one open endpoint that costs a call to the embedding provider.
 _PUBLIC_READ_ROUTES = frozenset({("POST", "/api/v1/documents/search")})
 
+# The inverse: reads that stay guarded even when PUBLIC_READS is on. Free slots
+# and prices are harmless to browse; a list of guest names with the times they
+# are expected is the most sensitive read in the API.
+_ALWAYS_GUARDED_ROUTES = frozenset({("GET", "/api/v1/bookings")})
+
 
 def _requires_api_key(method: str, path: str) -> bool:
     """The single source of truth for what needs a key.
@@ -42,6 +47,9 @@ def _requires_api_key(method: str, path: str) -> bool:
     normalised = path.rstrip("/") or "/"
     if normalised in _ALWAYS_OPEN_PATHS:
         return False
+
+    if (method, normalised) in _ALWAYS_GUARDED_ROUTES:
+        return True
 
     if not get_app_settings().public_reads:
         return True

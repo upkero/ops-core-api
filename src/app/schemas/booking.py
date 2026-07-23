@@ -4,7 +4,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 
 from src.app.contracts.booking import BookingDTO, BookingSlotDTO
-from src.app.contracts.enums import ResourceType
+from src.app.contracts.enums import BookingStatus, ResourceType
 
 
 class BookingSlotResponse(BaseModel):
@@ -47,6 +47,8 @@ class BookingResponse(BaseModel):
     slot_id: UUID
     party_size: int
     created_at: datetime
+    status: BookingStatus
+    cancelled_at: datetime | None = None
 
     @classmethod
     def from_contract(cls, booking: BookingDTO) -> "BookingResponse":
@@ -56,4 +58,6 @@ class BookingResponse(BaseModel):
             slot_id=booking.slot_id,
             party_size=booking.party_size,
             created_at=booking.created_at,
+            status=booking.status,
+            cancelled_at=booking.cancelled_at,
         )

@@ -13,11 +13,12 @@ from sqlalchemy import (
     Time,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.app.contracts.enums import ResourceType
+from src.app.contracts.enums import BookingStatus, ResourceType
 from src.app.models.base import Base, pg_enum
 
 
@@ -39,7 +40,19 @@ class BookingSlot(Base):
 
 class Booking(Base):
     __tablename__ = "booking"
-    __table_args__ = (CheckConstraint("party_size > 0", name="ck_booking_party_size_positive"),)
+    __table_args__ = (
+        CheckConstraint("party_size > 0", name="ck_booking_party_size_positive"),
+        # Partial unique index, not a plain UNIQUE on slot_id: a slot may be
+        # booked, cancelled and booked again, so only the *active* booking has
+        # to be unique. A plain constraint would make a cancelled slot
+        # permanently unbookable.
+        Index(
+            "uq_booking_active_slot",
+            "slot_id",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     # A booking is a table under a name, nothing more. There is deliberately no
@@ -49,10 +62,11 @@ class Booking(Base):
     # what was actually said at the time, rather than whatever the account is
     # renamed to later.
     guest_name: Mapped[str] = mapped_column(String(200), index=True)
-    # Unique: the "one booking per slot" rule is enforced by the service *and*
-    # by the database, so a race the application logic misses still cannot
-    # produce a double booking.
-    slot_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("booking_slot.id", ondelete="CASCADE"), unique=True)
+    # Uniqueness lives in the partial index above, not on this column: the
+    # "one booking per slot" rule applies only to active bookings, so the
+    # service check and the database guarantee still agree, and a race the
+    # application misses still cannot produce a double booking.
+    slot_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("booking_slot.id", ondelete="CASCADE"), index=True)
     party_size: Mapped[int] = mapped_column(Integer)
     # Client-supplied retry token. Unique, so a repeated request cannot create a
     # second booking even if two retries arrive at the same instant — the
@@ -61,4 +75,9 @@ class Booking(Base):
     # unique + index together produce a single unique index, which is what the
     # replay lookup reads and what stops two simultaneous retries inserting.
     idempotency_key: Mapped[str | None] = mapped_column(String(64), unique=True, index=True, default=None)
+    status: Mapped[BookingStatus] = mapped_column(
+        pg_enum(BookingStatus, "booking_status"),
+        default=BookingStatus.ACTIVE,
+    )
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

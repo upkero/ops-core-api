@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time
 from uuid import UUID
 
-from src.app.contracts.enums import ResourceType
+from src.app.contracts.enums import BookingStatus, ResourceType
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,3 +23,5 @@ class BookingDTO:
     slot_id: UUID
     party_size: int
     created_at: datetime
+    status: BookingStatus = BookingStatus.ACTIVE
+    cancelled_at: datetime | None = None

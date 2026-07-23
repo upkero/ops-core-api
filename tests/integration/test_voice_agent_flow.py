@@ -160,3 +160,92 @@ class TestCustomerRegistration:
         second = await client.post("/api/v1/customers", json={"name": "Anna Petrova"}, headers=auth_headers)
 
         assert first.json()["id"] != second.json()["id"]
+
+
+class TestCancellation:
+    """Finding a booking by name and cancelling it — the other half of the call."""
+
+    async def test_a_caller_can_find_and_cancel_their_table(
+        self,
+        client: AsyncClient,
+        slots: FakeBookingRepository,
+        auth_headers: dict[str, str],
+    ) -> None:
+        slot_id = str(next(iter(slots.slots)))
+        await client.post(
+            "/api/v1/bookings",
+            json={"guest_name": "Dmitri Volkov", "slot_id": slot_id, "party_size": 2},
+            headers=auth_headers,
+        )
+
+        # "I'd like to cancel my table" — the agent has a name, not a UUID.
+        found = await client.get("/api/v1/bookings", params={"guest_name": "volkov"}, headers=auth_headers)
+        booking_id = found.json()["items"][0]["id"]
+        cancelled = await client.delete(f"/api/v1/bookings/{booking_id}", headers=auth_headers)
+
+        assert found.json()["total"] == 1
+        assert cancelled.status_code == 200
+        assert cancelled.json()["status"] == "cancelled"
+
+    async def test_the_slot_is_offered_again_after_cancelling(
+        self,
+        client: AsyncClient,
+        slots: FakeBookingRepository,
+        auth_headers: dict[str, str],
+    ) -> None:
+        slot_id = str(next(iter(slots.slots)))
+        created = await client.post(
+            "/api/v1/bookings",
+            json={"guest_name": "Dmitri Volkov", "slot_id": slot_id, "party_size": 2},
+            headers=auth_headers,
+        )
+        gone = await client.get("/api/v1/booking-slots")
+
+        await client.delete(f"/api/v1/bookings/{created.json()['id']}", headers=auth_headers)
+        back = await client.get("/api/v1/booking-slots")
+
+        assert slot_id not in [item["id"] for item in gone.json()["items"]]
+        assert slot_id in [item["id"] for item in back.json()["items"]]
+
+    async def test_cancelling_twice_is_harmless(
+        self,
+        client: AsyncClient,
+        slots: FakeBookingRepository,
+        auth_headers: dict[str, str],
+    ) -> None:
+        created = await client.post(
+            "/api/v1/bookings",
+            json={"guest_name": "Dmitri Volkov", "slot_id": str(next(iter(slots.slots))), "party_size": 2},
+            headers=auth_headers,
+        )
+        booking_id = created.json()["id"]
+
+        first = await client.delete(f"/api/v1/bookings/{booking_id}", headers=auth_headers)
+        second = await client.delete(f"/api/v1/bookings/{booking_id}", headers=auth_headers)
+
+        assert first.status_code == second.status_code == 200
+        assert first.json() == second.json()
+
+    async def test_cancelling_an_unknown_booking_is_a_404(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        response = await client.delete(f"/api/v1/bookings/{uuid4()}", headers=auth_headers)
+
+        assert response.status_code == 404
+        assert response.json()["error_code"] == "entity_not_found"
+
+    async def test_cancelling_needs_the_api_key(
+        self,
+        client: AsyncClient,
+        slots: FakeBookingRepository,
+        auth_headers: dict[str, str],
+    ) -> None:
+        created = await client.post(
+            "/api/v1/bookings",
+            json={"guest_name": "Dmitri Volkov", "slot_id": str(next(iter(slots.slots))), "party_size": 2},
+            headers=auth_headers,
+        )
+
+        assert (await client.delete(f"/api/v1/bookings/{created.json()['id']}")).status_code == 401

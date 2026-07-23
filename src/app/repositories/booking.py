@@ -1,11 +1,11 @@
-from datetime import date
+from datetime import UTC, date, datetime
 from uuid import UUID
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.contracts.booking import BookingDTO, BookingSlotDTO
-from src.app.contracts.enums import ResourceType
+from src.app.contracts.enums import BookingStatus, ResourceType
 from src.app.contracts.pagination import PageDTO, PaginationParams
 from src.app.interfaces.repositories.booking_repository import BookingRepository
 from src.app.models.booking import Booking, BookingSlot
@@ -30,6 +30,8 @@ def _booking_to_dto(row: Booking) -> BookingDTO:
         slot_id=row.slot_id,
         party_size=row.party_size,
         created_at=row.created_at,
+        status=row.status,
+        cancelled_at=row.cancelled_at,
     )
 
 
@@ -86,6 +88,43 @@ class SqlAlchemyBookingRepository(BookingRepository):
         return _booking_to_dto(booking)
 
     async def mark_slot_taken(self, slot_id: UUID) -> None:
+        await self._set_slot_available(slot_id, available=False)
+
+    async def mark_slot_free(self, slot_id: UUID) -> None:
+        await self._set_slot_available(slot_id, available=True)
+
+    async def _set_slot_available(self, slot_id: UUID, *, available: bool) -> None:
         await self._session.execute(
-            update(BookingSlot).where(BookingSlot.id == slot_id).values(is_available=False)
+            update(BookingSlot).where(BookingSlot.id == slot_id).values(is_available=available)
         )
+
+    async def get_booking(self, booking_id: UUID) -> BookingDTO | None:
+        row = await self._session.get(Booking, booking_id)
+        return _booking_to_dto(row) if row is not None else None
+
+    async def list_bookings(
+        self,
+        guest_name: str | None,
+        slot_date: date | None,
+        status: BookingStatus | None,
+        params: PaginationParams,
+    ) -> PageDTO[BookingDTO]:
+        stmt = select(Booking).join(BookingSlot, Booking.slot_id == BookingSlot.id)
+        if guest_name:
+            pattern = f"%{guest_name.replace('!', '!!').replace('%', '!%').replace('_', '!_')}%"
+            stmt = stmt.where(Booking.guest_name.ilike(pattern, escape="!"))
+        if slot_date is not None:
+            stmt = stmt.where(BookingSlot.slot_date == slot_date)
+        if status is not None:
+            stmt = stmt.where(Booking.status == status)
+        stmt = stmt.order_by(BookingSlot.slot_date, BookingSlot.slot_time)
+        return await paginate(self._session, stmt, params, _booking_to_dto)
+
+    async def mark_cancelled(self, booking_id: UUID) -> BookingDTO:
+        row = await self._session.get(Booking, booking_id)
+        if row is None:
+            raise LookupError(f"Booking {booking_id} disappeared while cancelling it.")
+        row.status = BookingStatus.CANCELLED
+        row.cancelled_at = datetime.now(UTC)
+        await self._session.flush()
+        return _booking_to_dto(row)

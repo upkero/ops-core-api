@@ -14,7 +14,7 @@ from uuid import UUID, uuid4
 
 from src.app.contracts.booking import BookingDTO, BookingSlotDTO
 from src.app.contracts.customer import CustomerDTO
-from src.app.contracts.enums import CustomerStatus, ResourceType
+from src.app.contracts.enums import BookingStatus, CustomerStatus, ResourceType
 from src.app.contracts.knowledge import ChunkMatchDTO, DocumentDTO, NewDocument
 from src.app.contracts.pagination import PageDTO, PaginationParams
 from src.app.contracts.pricing import PricingItemDTO
@@ -128,6 +128,41 @@ class FakeBookingRepository(BookingRepository):
 
     async def mark_slot_taken(self, slot_id: UUID) -> None:
         self.slots[slot_id] = replace(self.slots[slot_id], is_available=False)
+
+    async def mark_slot_free(self, slot_id: UUID) -> None:
+        self.slots[slot_id] = replace(self.slots[slot_id], is_available=True)
+
+    async def get_booking(self, booking_id: UUID) -> BookingDTO | None:
+        return next((b for b in self.bookings if b.id == booking_id), None)
+
+    async def list_bookings(
+        self,
+        guest_name: str | None,
+        slot_date: date | None,
+        status: BookingStatus | None,
+        params: PaginationParams,
+    ) -> PageDTO[BookingDTO]:
+        found = [
+            booking
+            for booking in self.bookings
+            if (not guest_name or guest_name.lower() in booking.guest_name.lower())
+            and (slot_date is None or self.slots[booking.slot_id].slot_date == slot_date)
+            and (status is None or booking.status is status)
+        ]
+        return _page(found, params)
+
+    async def mark_cancelled(self, booking_id: UUID) -> BookingDTO:
+        index = next(i for i, b in enumerate(self.bookings) if b.id == booking_id)
+        cancelled = replace(
+            self.bookings[index],
+            status=BookingStatus.CANCELLED,
+            cancelled_at=datetime(2026, 7, 23, tzinfo=UTC),
+        )
+        self.bookings[index] = cancelled
+        for key, booking in self.by_key.items():
+            if booking.id == booking_id:
+                self.by_key[key] = cancelled
+        return cancelled
 
 
 class FakePricingRepository(PricingRepository):

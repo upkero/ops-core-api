@@ -2,7 +2,7 @@ from datetime import date
 from uuid import UUID
 
 from src.app.contracts.booking import BookingDTO, BookingSlotDTO
-from src.app.contracts.enums import ResourceType
+from src.app.contracts.enums import BookingStatus, ResourceType
 from src.app.contracts.pagination import PageDTO, PaginationParams
 from src.app.exceptions.domain import (
     EntityNotFoundError,
@@ -26,6 +26,35 @@ class BookingService:
         # account is a different flow's job, so this service never needs to
         # reach for one.
         self._bookings = bookings
+
+    async def find_bookings(
+        self,
+        guest_name: str | None,
+        slot_date: date | None,
+        status: BookingStatus | None,
+        params: PaginationParams,
+    ) -> PageDTO[BookingDTO]:
+        return await self._bookings.list_bookings(guest_name, slot_date, status, params)
+
+    async def cancel_booking(self, booking_id: UUID) -> BookingDTO:
+        """Cancel a reservation and put the slot back on offer.
+
+        Idempotent: cancelling an already-cancelled booking returns it
+        unchanged rather than failing. A dropped call retries, and the caller
+        should not have to distinguish "I cancelled it" from "I cancelled it
+        twice".
+        """
+        booking = await self._bookings.get_booking(booking_id)
+        if booking is None:
+            raise EntityNotFoundError(f"Booking '{booking_id}' was not found.")
+        if booking.status is BookingStatus.CANCELLED:
+            return booking
+
+        cancelled = await self._bookings.mark_cancelled(booking_id)
+        # Freeing the slot is the point of cancelling: it has to become
+        # bookable again in the same transaction, or the table sits empty.
+        await self._bookings.mark_slot_free(booking.slot_id)
+        return cancelled
 
     async def list_available_slots(
         self,
