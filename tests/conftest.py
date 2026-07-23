@@ -25,7 +25,6 @@ from src.app.api.v1.dependencies import (  # noqa: E402
     get_pricing_service,
 )
 from src.app.api.v1.middleware.rate_limit import limiter, reset_global_rate_limit  # noqa: E402
-from src.app.core.settings.app import get_app_settings  # noqa: E402
 from src.app.services.booking import BookingService  # noqa: E402
 from src.app.services.customer import CustomerService  # noqa: E402
 from src.app.services.knowledge import KnowledgeService  # noqa: E402
@@ -143,16 +142,22 @@ def app(
 
 
 @pytest.fixture
-def private_reads(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Run the app with PUBLIC_READS=false, the private-backend posture."""
-    monkeypatch.setenv("PUBLIC_READS", "false")
-    get_app_settings.cache_clear()
-    yield
-    get_app_settings.cache_clear()
+async def client(app: FastAPI) -> AsyncGenerator[AsyncClient, None]:
+    """Authenticated by default — every /api/v1 endpoint needs the key now.
+
+    Consumers of this API are all server-side and always hold the key, so this
+    is the realistic client. Tests about rejection use `anonymous_client`.
+    """
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        headers={"X-API-Key": TEST_API_KEY},
+    ) as async_client:
+        yield async_client
 
 
 @pytest.fixture
-async def client(app: FastAPI) -> AsyncGenerator[AsyncClient, None]:
+async def anonymous_client(app: FastAPI) -> AsyncGenerator[AsyncClient, None]:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as async_client:
         yield async_client
 

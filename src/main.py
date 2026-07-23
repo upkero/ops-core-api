@@ -6,10 +6,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.app.api.v1.exception_handlers import register_exception_handlers
-from src.app.api.v1.middleware.api_key import register_api_key_middleware
 from src.app.api.v1.middleware.rate_limit import register_rate_limiting
 from src.app.api.v1.middleware.request_id import register_request_id_middleware
-from src.app.api.v1.openapi import customise_openapi
 from src.app.api.v1.router import api_router
 from src.app.api.v1.routers.health import router as health_router
 from src.app.bootstrap.container import ApplicationContainer
@@ -37,14 +35,14 @@ def create_app() -> FastAPI:
 
     # Middleware is registered inside-out: Starlette prepends each one, so the
     # LAST registered runs FIRST. The order below produces the runtime chain
-    #     CORS -> request_id -> api_key -> rate_limit -> routes
-    # which matters because the api_key and rate limit middleware short-circuit
-    # with 401 and 429. Those responses have to travel back out through
-    # request_id and CORS, or the rejection reaches the browser without CORS
-    # headers (shown as an opaque network error rather than a real status) and
-    # without a request id in the logs.
+    #     CORS -> request_id -> rate_limit -> routes
+    # which matters because the rate limit middleware short-circuits with 429.
+    # That response has to travel back out through request_id and CORS, or the
+    # rejection reaches the browser without CORS headers (shown as an opaque
+    # network error rather than a real status) and without a request id in the
+    # logs. The API key is a route dependency, not middleware, so it needs no
+    # place in this ordering.
     register_rate_limiting(app)
-    register_api_key_middleware(app)
     register_request_id_middleware(app)
     app.add_middleware(
         CORSMiddleware,
@@ -58,9 +56,6 @@ def create_app() -> FastAPI:
 
     app.include_router(health_router)
     app.include_router(api_router)
-
-    # After the routers: the schema is built from the registered routes.
-    customise_openapi(app)
 
     return app
 

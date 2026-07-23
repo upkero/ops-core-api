@@ -141,8 +141,8 @@ class TestCustomerRegistration:
         assert created.status_code == 201
         assert created.json()["status"] == "lead"
 
-    async def test_registering_needs_the_api_key(self, client: AsyncClient) -> None:
-        assert (await client.post("/api/v1/customers", json={"name": "Anonymous"})).status_code == 401
+    async def test_registering_needs_the_api_key(self, anonymous_client: AsyncClient) -> None:
+        assert (await anonymous_client.post("/api/v1/customers", json={"name": "Anonymous"})).status_code == 401
 
     async def test_a_blank_name_is_rejected(self, client: AsyncClient, auth_headers: dict[str, str]) -> None:
         response = await client.post("/api/v1/customers", json={"name": "   "}, headers=auth_headers)
@@ -239,6 +239,7 @@ class TestCancellation:
     async def test_cancelling_needs_the_api_key(
         self,
         client: AsyncClient,
+        anonymous_client: AsyncClient,
         slots: FakeBookingRepository,
         auth_headers: dict[str, str],
     ) -> None:
@@ -248,4 +249,4 @@ class TestCancellation:
             headers=auth_headers,
         )
 
-        assert (await client.delete(f"/api/v1/bookings/{created.json()['id']}")).status_code == 401
+        assert (await anonymous_client.delete(f"/api/v1/bookings/{created.json()['id']}")).status_code == 401

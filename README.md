@@ -73,22 +73,22 @@ embedder, so semantic search works offline out of the box. See
 
 ## API
 
-Reads are open. Writes require the `X-API-Key` header (see [Security](#security)).
+Every endpoint under `/api/v1` requires the `X-API-Key` header (see [Security](#security)). Only `/health` and the schema endpoints answer without it.
 
 | Method | Path | Auth |
 |---|---|---|
 | `GET` | `/health` | open |
-| `GET` | `/api/v1/customers?search=&limit=&offset=` | open |
-| `GET` | `/api/v1/customers/{id}` | open |
+| `GET` | `/api/v1/customers?search=&limit=&offset=` | **key** |
+| `GET` | `/api/v1/customers/{id}` | **key** |
 | `POST` | `/api/v1/customers` | **key** |
-| `GET` | `/api/v1/booking-slots?date=&resource_type=&limit=&offset=` | open |
+| `GET` | `/api/v1/booking-slots?date=&resource_type=&limit=&offset=` | **key** |
 | `POST` | `/api/v1/bookings` | **key** |
 | `GET` | `/api/v1/bookings?guest_name=&date=&status=` | **key** |
 | `DELETE` | `/api/v1/bookings/{id}` | **key** |
-| `GET` | `/api/v1/pricing?service=&quantity=` | open |
-| `GET` | `/api/v1/pricing/services` | open |
+| `GET` | `/api/v1/pricing?service=&quantity=` | **key** |
+| `GET` | `/api/v1/pricing/services` | **key** |
 | `POST` | `/api/v1/documents` | **key** |
-| `POST` | `/api/v1/documents/search` | open |
+| `POST` | `/api/v1/documents/search` | **key** |
 
 ### Examples
 
@@ -251,13 +251,13 @@ Every error uses one envelope, so a client has a single shape to handle:
 
 ## Security
 
-- **API key** — `POST`/`PUT`/`PATCH`/`DELETE` require `X-API-Key`, compared with
-  `secrets.compare_digest`. Reads stay open so the demo is browsable. `POST /documents/search` is
-  explicitly exempt: it is a read that happens to be a POST because the query does not belong in a URL.
-  Swagger UI publishes the scheme, so you can hit **Authorize** in `/docs` and execute the protected
-  endpoints from the browser.
-- **`PUBLIC_READS`** — set it to `false` and every endpoint except `/health` needs the key. See
-  [Who may read](#who-may-read) for when that is the right setting.
+- **API key** — every endpoint under `/api/v1` requires `X-API-Key`, compared with
+  `secrets.compare_digest`. `/health` stays open for the container runtime, and `/docs` +
+  `/openapi.json` stay open so Swagger UI can render. Swagger publishes the scheme, so **Authorize**
+  in `/docs` works.
+- One rule, declared once: the guard is a `Security()` dependency on the `/api/v1` router, so a new
+  router cannot be added unprotected by accident, and FastAPI derives the OpenAPI padlock from the
+  same object that enforces it — there is no hand-written schema to drift.
 - **Rate limiting** — 60 requests/minute per IP per endpoint, and 20/minute for the two endpoints
   that call the embedding provider. In-memory, so counters are per process; the container runs a
   single worker.
@@ -267,36 +267,20 @@ Every error uses one envelope, so a client has a single shape to handle:
 Middleware runs `CORS → request_id → api_key → rate_limit`, so a rejection still comes back with
 CORS headers and a request id instead of surfacing as an opaque browser error.
 
-`_requires_api_key()` in `api/v1/middleware/api_key.py` is the single source of truth: the
-middleware enforces it and the OpenAPI schema is generated from it, so the padlock shown in Swagger
-cannot drift from the rule the server actually applies. A test asserts that correspondence by
-calling every documented operation unauthenticated.
+### Why the key is on reads too
 
-### Who may read
+A credential a browser holds is not a secret: if a React bundle carries the key, it is visible in
+DevTools and in the shipped JavaScript. CORS does not help either — it is enforced by the browser,
+so `curl` ignores it completely. So there is no version of "open reads" that is both public and
+safe once the data is real, and `notes: "Allergic to lavender oil"` next to a customer name is
+personal data under GDPR.
 
-Reads are open by default, and that is a deliberate choice tied to one fact: **a credential that a
-browser holds is not a secret.** If a React bundle carries the key so it can call this API, the key
-is visible in DevTools and in the shipped JavaScript — it stops nobody. CORS does not help either;
-it is enforced by the browser, so `curl` ignores it completely. Open reads over demo data are the
-honest posture; a key in a public SPA would be security theatre.
+One rule for everything is also simpler to reason about than a per-endpoint policy: there is no
+list of exceptions to keep in sync, and nothing can be left open by accident.
 
-That changes the moment the data is real. `notes: "Allergic to lavender oil"` next to a customer
-name is personal data, and under GDPR health information is a special category — an open
-`GET /customers` would be a leak, whatever CORS says.
-
-So pick the posture that matches the deployment:
-
-| | `PUBLIC_READS=true` (default) | `PUBLIC_READS=false` |
-|---|---|---|
-| Caller | browser talks to this API directly | a server-side caller holds the key |
-| Data | demo / fictional | real |
-| Reads | open | need the key |
-| CORS | matters | irrelevant (no browser involved) |
-
-For a Next.js front end, the second column is the one you want: keep the key in the server
-environment and call this API from a route handler or server component, so the browser talks only
-to your own origin. Never expose it through a `NEXT_PUBLIC_*` variable — those are inlined into the
-client bundle at build time.
+For a browser front end, keep the key in the server environment and call this API from a Next.js
+route handler or server component, so the browser talks only to your own origin. Never expose it
+through a `NEXT_PUBLIC_*` variable — those are inlined into the client bundle at build time.
 
 An IP allowlist is a fine additional layer for the server-to-server callers, but it does not replace
 the key: the allowlist says *which machine*, the key says *which consumer*, and the key is rotated
@@ -350,8 +334,7 @@ All settings come from the environment; see [`.env.example`](.env.example) for t
 | Variable | Default | Purpose |
 |---|---|---|
 | `DB_URL` | — | Postgres async URL |
-| `API_KEY` | — | **Required.** Shared secret for protected endpoints |
-| `PUBLIC_READS` | `true` | `false` requires the key on reads too |
+| `API_KEY` | — | **Required.** Shared secret for every `/api/v1` endpoint |
 | `EMBEDDING_PROVIDER` | `hashing` | Embedding implementation |
 | `EMBEDDING_DIMENSIONS` | `1536` | Vector width; must match the schema |
 | `RATE_LIMIT_PER_MINUTE` | `60` | Global per-IP, per-endpoint limit |
@@ -543,13 +526,13 @@ lookup в середину живого звонка.
 
 ## Безопасность
 
-- **API-ключ** — `POST`/`PUT`/`PATCH`/`DELETE` требуют `X-API-Key`, сравнение через
-  `secrets.compare_digest`. Чтение открыто, чтобы демо можно было листать.
-  `POST /documents/search` вынесен в исключения: это чтение, которое сделано POST-ом только потому,
-  что запросу не место в URL. Схема опубликована в OpenAPI, поэтому в `/docs` есть кнопка
-  **Authorize** и защищённые эндпоинты можно выполнять прямо из браузера.
-- **`PUBLIC_READS`** — если поставить `false`, ключ требуется на всех эндпоинтах, кроме `/health`.
-  Когда это нужно — ниже, в разделе [Кому можно читать](#кому-можно-читать).
+- **API-ключ** — требуется на всех эндпоинтах под `/api/v1`, сравнение через
+  `secrets.compare_digest`. Открытыми остаются только `/health` (его опрашивает docker) и
+  `/docs` с `/openapi.json` (иначе Swagger UI не отрисуется). Схема опубликована в OpenAPI, поэтому
+  в `/docs` работает кнопка **Authorize**.
+- Одно правило, объявленное один раз: защита — это `Security()`-зависимость на роутере `/api/v1`,
+  поэтому новый роутер нельзя случайно добавить незащищённым, а замок в OpenAPI FastAPI выводит из
+  того же объекта, который проверяет ключ — расходиться нечему.
 - **Rate limiting** — 60 запросов/минуту на IP и эндпоинт, 20/минуту для двух эндпоинтов,
   вызывающих провайдера эмбеддингов. Счётчики в памяти процесса.
 - **CORS** — origins из `CORS_ALLOWED_ORIGINS`, credentials выключены (ключ идёт заголовком, а не куки).
@@ -562,35 +545,24 @@ lookup в середину живого звонка.
 разойтись с тем, что реально проверяет сервер. Отдельный тест дёргает каждый задокументированный
 эндпоинт без ключа и сверяет результат со схемой.
 
-### Кому можно читать
+### Почему ключ и на чтении
 
-Чтение по умолчанию открыто, и это осознанное решение, опирающееся на один факт: **ключ, попавший
-в браузер, перестаёт быть секретом.** Если React-бандл несёт ключ, чтобы дёргать этот API, ключ
-видно в DevTools и в самом JS — он не защищает ни от кого. CORS тоже не помогает: его применяет
-браузер, а `curl` его просто игнорирует. Поэтому на вымышленных данных открытое чтение — честная
-позиция, а ключ в публичном SPA был бы имитацией безопасности.
+Ключ, попавший в браузер, перестаёт быть секретом: если его несёт React-бандл, он виден в DevTools
+и в самом JS. CORS тоже не спасает — его применяет браузер, а `curl` его игнорирует. То есть
+варианта «открытое чтение, но безопасно» не существует, как только данные настоящие, а
+`notes: "Allergic to lavender oil"` рядом с именем клиента — это перс. данные, по GDPR ещё и
+специальной категории.
 
-Всё меняется, когда данные настоящие. `notes: "Allergic to lavender oil"` рядом с именем клиента —
-это перс. данные, а по GDPR медицинская информация относится к специальной категории; открытый
-`GET /customers` был бы утечкой, независимо от CORS.
+Одно правило на весь API проще и в рассуждении: нет списка исключений, который надо держать
+синхронным, и ничего нельзя случайно оставить открытым.
 
-Поэтому выбирайте режим под развёртывание:
+Для фронтенда ключ живёт в серверном окружении, а API вызывается из route handler или серверного
+компонента Next.js — браузер общается только с вашим origin. Никогда не кладите ключ в
+`NEXT_PUBLIC_*`: такие переменные вшиваются в клиентский бандл на сборке.
 
-| | `PUBLIC_READS=true` (по умолчанию) | `PUBLIC_READS=false` |
-|---|---|---|
-| Кто вызывает | браузер напрямую | серверная часть, держащая ключ |
-| Данные | демо / вымышленные | реальные |
-| Чтение | открыто | нужен ключ |
-| CORS | важен | не нужен (браузера в цепочке нет) |
-
-Для фронтенда на Next.js правильный вариант — второй: ключ лежит в серверном окружении, а API
-вызывается из route handler или серверного компонента, так что браузер общается только с вашим
-собственным origin. Никогда не кладите ключ в `NEXT_PUBLIC_*` — такие переменные на этапе сборки
-вшиваются в клиентский бандл.
-
-IP-allowlist — хороший дополнительный слой для серверных потребителей, но он не заменяет ключ:
-allowlist говорит «с какой машины», ключ — «какой именно потребитель», и ключ отзывается правкой
-одной переменной, а не инфраструктуры.
+IP-allowlist — хороший дополнительный слой для серверных потребителей, но ключ он не заменяет:
+allowlist говорит «с какой машины», ключ — «какой потребитель», и ключ отзывается правкой одной
+переменной.
 
 ## Эмбеддинги
 

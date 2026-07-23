@@ -6,6 +6,7 @@ through request-id and CORS.
 """
 
 import pytest
+from fastapi import FastAPI
 from httpx import AsyncClient
 
 from tests.conftest import TEST_API_KEY
@@ -23,8 +24,11 @@ def booking_body(slots: FakeBookingRepository) -> dict[str, object]:
     }
 
 
-async def test_write_without_a_key_is_rejected(client: AsyncClient, booking_body: dict[str, object]) -> None:
-    response = await client.post("/api/v1/bookings", json=booking_body)
+async def test_a_request_without_a_key_is_rejected(
+    anonymous_client: AsyncClient,
+    booking_body: dict[str, object],
+) -> None:
+    response = await anonymous_client.post("/api/v1/bookings", json=booking_body)
 
     assert response.status_code == 401
     assert response.json() == {
@@ -33,18 +37,22 @@ async def test_write_without_a_key_is_rejected(client: AsyncClient, booking_body
     }
 
 
-async def test_write_with_a_wrong_key_is_rejected(client: AsyncClient, booking_body: dict[str, object]) -> None:
-    response = await client.post("/api/v1/bookings", json=booking_body, headers={"X-API-Key": "not-the-key"})
+async def test_a_wrong_key_is_rejected(anonymous_client: AsyncClient, booking_body: dict[str, object]) -> None:
+    response = await anonymous_client.post(
+        "/api/v1/bookings",
+        json=booking_body,
+        headers={"X-API-Key": "not-the-key"},
+    )
 
     assert response.status_code == 401
     assert response.json()["error_code"] == "invalid_api_key"
 
 
 async def test_a_key_that_is_a_prefix_of_the_real_one_is_rejected(
-    client: AsyncClient,
+    anonymous_client: AsyncClient,
     booking_body: dict[str, object],
 ) -> None:
-    response = await client.post(
+    response = await anonymous_client.post(
         "/api/v1/bookings",
         json=booking_body,
         headers={"X-API-Key": TEST_API_KEY[:-1]},
@@ -63,35 +71,45 @@ async def test_write_with_the_right_key_succeeds(
     assert response.status_code == 201
 
 
-async def test_document_ingestion_needs_a_key(client: AsyncClient) -> None:
-    response = await client.post("/api/v1/documents", json={"title": "t", "content": "some content"})
+async def test_document_ingestion_needs_a_key(anonymous_client: AsyncClient) -> None:
+    response = await anonymous_client.post("/api/v1/documents", json={"title": "t", "content": "some content"})
 
     assert response.status_code == 401
 
 
 @pytest.mark.parametrize(
     "path",
-    ["/health", "/api/v1/customers", "/api/v1/booking-slots", "/api/v1/pricing/services"],
+    ["/api/v1/customers", "/api/v1/booking-slots", "/api/v1/pricing/services", "/api/v1/bookings"],
 )
-async def test_reads_stay_open(client: AsyncClient, path: str) -> None:
+async def test_every_read_needs_a_key_too(anonymous_client: AsyncClient, client: AsyncClient, path: str) -> None:
+    # One rule for the whole API: there is no endpoint under /api/v1 that
+    # answers without the key, so nothing can be left open by accident.
+    assert (await anonymous_client.get(path)).status_code == 401
     assert (await client.get(path)).status_code == 200
 
 
-async def test_semantic_search_stays_open_despite_being_a_post(client: AsyncClient) -> None:
-    # It is a read that happens to be a POST, because the query does not belong
-    # in a URL. A method-only rule would have locked it.
-    response = await client.post("/api/v1/documents/search", json={"query": "parking", "top_k": 1})
+async def test_semantic_search_needs_a_key(anonymous_client: AsyncClient, client: AsyncClient) -> None:
+    body = {"query": "parking", "top_k": 1}
 
-    assert response.status_code == 200
+    assert (await anonymous_client.post("/api/v1/documents/search", json=body)).status_code == 401
+    assert (await client.post("/api/v1/documents/search", json=body)).status_code == 200
+
+
+@pytest.mark.parametrize("path", ["/health", "/openapi.json", "/docs"])
+async def test_infrastructure_endpoints_stay_open(anonymous_client: AsyncClient, path: str) -> None:
+    # /health is polled by the container runtime; the schema endpoints have to
+    # load unauthenticated or Swagger UI cannot render at all.
+    assert (await anonymous_client.get(path)).status_code == 200
 
 
 async def test_the_unauthorised_response_still_carries_cors_and_request_id(
-    client: AsyncClient,
+    anonymous_client: AsyncClient,
     booking_body: dict[str, object],
 ) -> None:
-    # Proves the middleware ordering: a 401 raised in the innermost guard has
-    # to travel back out through request-id and CORS.
-    response = await client.post("/api/v1/bookings", json=booking_body, headers={"Origin": ORIGIN})
+    # The key is a dependency now, so the 401 is raised inside the routing
+    # layer and travels back out through request-id and CORS like any other
+    # handled error.
+    response = await anonymous_client.post("/api/v1/bookings", json=booking_body, headers={"Origin": ORIGIN})
 
     assert response.status_code == 401
     assert response.headers["access-control-allow-origin"] == ORIGIN
@@ -195,3 +213,32 @@ async def test_credentials_are_not_allowed(client: AsyncClient) -> None:
     response = await client.get("/api/v1/customers", headers={"Origin": ORIGIN})
 
     assert "access-control-allow-credentials" not in response.headers
+
+
+class TestOpenApiSecurity:
+    """Swagger must show the key, and the schema must match what is enforced.
+
+    Declaring the guard as a Security() dependency means FastAPI derives both
+    from the same object — there is no hand-written schema to drift.
+    """
+
+    def test_the_key_scheme_is_published(self, app: FastAPI) -> None:
+        schemes = app.openapi()["components"]["securitySchemes"]
+
+        scheme = next(iter(schemes.values()))
+        assert scheme["type"] == "apiKey"
+        assert scheme["in"] == "header"
+        assert scheme["name"] == "X-API-Key"
+
+    def test_every_api_operation_is_marked_as_secured(self, app: FastAPI) -> None:
+        unsecured = [
+            f"{method.upper()} {path}"
+            for path, operations in app.openapi()["paths"].items()
+            for method, operation in operations.items()
+            if path.startswith("/api/v1") and "security" not in operation
+        ]
+
+        assert unsecured == []
+
+    def test_health_is_not_marked_as_secured(self, app: FastAPI) -> None:
+        assert "security" not in app.openapi()["paths"]["/health"]["get"]
