@@ -80,6 +80,7 @@ Reads are open. Writes require the `X-API-Key` header (see [Security](#security)
 | `GET` | `/health` | open |
 | `GET` | `/api/v1/customers?search=&limit=&offset=` | open |
 | `GET` | `/api/v1/customers/{id}` | open |
+| `POST` | `/api/v1/customers` | **key** |
 | `GET` | `/api/v1/booking-slots?date=&resource_type=&limit=&offset=` | open |
 | `POST` | `/api/v1/bookings` | **key** |
 | `GET` | `/api/v1/pricing?service=&quantity=` | open |
@@ -107,9 +108,20 @@ curl "localhost:8000/api/v1/pricing?service=Deep%20Tissue%20Massage&quantity=6"
 # {"service_name":"Deep Tissue Massage","unit_price":"120.00","quantity":6,
 #  "subtotal":"720.00","discount_percent":"10","discount_amount":"72.00","total":"648.00"}
 
+# Register a caller who is not in the system yet
+curl -X POST localhost:8000/api/v1/customers \
+  -H "X-API-Key: $API_KEY" -H 'Content-Type: application/json' \
+  -d '{"name":"Priya Raman","notes":"Called about a table on Friday."}'
+
 # Book a slot (repeat the same call and it returns 409 slot_unavailable)
 curl -X POST localhost:8000/api/v1/bookings \
   -H "X-API-Key: $API_KEY" -H 'Content-Type: application/json' \
+  -d '{"customer_id":"<uuid>","slot_id":"<uuid>","party_size":2}'
+
+# The same booking, retried safely after a dropped connection
+curl -X POST localhost:8000/api/v1/bookings \
+  -H "X-API-Key: $API_KEY" -H 'Idempotency-Key: 6f1c8b0e-…' \
+  -H 'Content-Type: application/json' \
   -d '{"customer_id":"<uuid>","slot_id":"<uuid>","party_size":2}'
 
 # Add a document — it is chunked and embedded on the way in
@@ -169,6 +181,27 @@ repository adds paging by passing its query to the helper — there is no per-en
 
 `POST /documents/search` is deliberately *not* paginated: it takes `top_k` because relevance
 ranking is not a collection you walk, and the second page of a vector search is rarely useful.
+
+### Retrying a booking
+
+`POST /bookings` accepts an optional `Idempotency-Key` header. Repeat a request with the same key
+and you get back the booking that key already created, with the same `201`, instead of being told
+the slot is taken.
+
+This exists because the caller that needs it most is a voice agent: a phone call drops mid-request
+often enough to be the normal path, and without the key a retry is indistinguishable from someone
+else having grabbed the slot — both are `409 slot_unavailable`. With it, the three outcomes stay
+distinct:
+
+| Situation | Response |
+|---|---|
+| Retry of your own request | `201` with the original booking |
+| Someone else took the slot | `409 slot_unavailable` |
+| Same key, different booking details | `409 idempotency_key_reused` |
+
+The key is stored on the booking row under a unique index, so two retries arriving at the same
+instant cannot both insert — the database refuses the second rather than the application hoping to
+notice in time.
 
 Every error uses one envelope, so a client has a single shape to handle:
 
@@ -409,6 +442,24 @@ docker compose up --build
 `POST /documents/search` намеренно **не** пагинируется: там `top_k`, потому что ранжирование по
 релевантности — не коллекция, которую листают, и вторая страница векторного поиска почти всегда
 бесполезна.
+
+### Повтор брони
+
+`POST /bookings` принимает необязательный заголовок `Idempotency-Key`. Повторный запрос с тем же
+ключом возвращает ту же самую бронь и тот же `201`, а не «слот занят».
+
+Это сделано ради войс-агента: телефонный звонок обрывается посреди запроса достаточно часто, чтобы
+считать это обычным сценарием, а без ключа повтор неотличим от того, что слот перехватил кто-то
+другой — и там, и там `409 slot_unavailable`. С ключом три исхода расходятся:
+
+| Ситуация | Ответ |
+|---|---|
+| Повтор своего же запроса | `201` с исходной бронью |
+| Слот занял кто-то другой | `409 slot_unavailable` |
+| Тот же ключ, другие параметры | `409 idempotency_key_reused` |
+
+Ключ лежит в строке брони под уникальным индексом, поэтому два одновременных ретрая физически не
+могут вставиться оба — второй отклоняет база, а не приложение, надеющееся успеть заметить.
 
 Все ошибки приходят в одном конверте:
 

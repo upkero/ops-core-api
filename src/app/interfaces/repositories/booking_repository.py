@@ -28,7 +28,17 @@ class BookingRepository(ABC):
         """
 
     @abstractmethod
-    async def create_booking(self, customer_id: UUID, slot_id: UUID, party_size: int) -> BookingDTO: ...
+    async def get_by_idempotency_key(self, idempotency_key: str) -> BookingDTO | None:
+        """Find a booking already made under this retry token, if any."""
+
+    @abstractmethod
+    async def create_booking(
+        self,
+        customer_id: UUID,
+        slot_id: UUID,
+        party_size: int,
+        idempotency_key: str | None = None,
+    ) -> BookingDTO: ...
 
     @abstractmethod
     async def mark_slot_taken(self, slot_id: UUID) -> None: ...

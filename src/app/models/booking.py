@@ -9,6 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    String,
     Time,
     UniqueConstraint,
     func,
@@ -47,4 +48,11 @@ class Booking(Base):
     # produce a double booking.
     slot_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("booking_slot.id", ondelete="CASCADE"), unique=True)
     party_size: Mapped[int] = mapped_column(Integer)
+    # Client-supplied retry token. Unique, so a repeated request cannot create a
+    # second booking even if two retries arrive at the same instant — the
+    # database refuses the duplicate rather than the application hoping to
+    # notice it first.
+    # unique + index together produce a single unique index, which is what the
+    # replay lookup reads and what stops two simultaneous retries inserting.
+    idempotency_key: Mapped[str | None] = mapped_column(String(64), unique=True, index=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

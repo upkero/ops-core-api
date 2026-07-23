@@ -23,6 +23,16 @@ def _slot_to_dto(row: BookingSlot) -> BookingSlotDTO:
     )
 
 
+def _booking_to_dto(row: Booking) -> BookingDTO:
+    return BookingDTO(
+        id=row.id,
+        customer_id=row.customer_id,
+        slot_id=row.slot_id,
+        party_size=row.party_size,
+        created_at=row.created_at,
+    )
+
+
 class SqlAlchemyBookingRepository(BookingRepository):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -51,20 +61,29 @@ class SqlAlchemyBookingRepository(BookingRepository):
         row = await self._session.scalar(stmt)
         return _slot_to_dto(row) if row is not None else None
 
-    async def create_booking(self, customer_id: UUID, slot_id: UUID, party_size: int) -> BookingDTO:
-        booking = Booking(customer_id=customer_id, slot_id=slot_id, party_size=party_size)
+    async def get_by_idempotency_key(self, idempotency_key: str) -> BookingDTO | None:
+        row = await self._session.scalar(select(Booking).where(Booking.idempotency_key == idempotency_key))
+        return _booking_to_dto(row) if row is not None else None
+
+    async def create_booking(
+        self,
+        customer_id: UUID,
+        slot_id: UUID,
+        party_size: int,
+        idempotency_key: str | None = None,
+    ) -> BookingDTO:
+        booking = Booking(
+            customer_id=customer_id,
+            slot_id=slot_id,
+            party_size=party_size,
+            idempotency_key=idempotency_key,
+        )
         self._session.add(booking)
         # Flush, not commit: the request-scoped transaction owns the commit.
         # This populates server-side defaults so the DTO is complete.
         await self._session.flush()
         await self._session.refresh(booking)
-        return BookingDTO(
-            id=booking.id,
-            customer_id=booking.customer_id,
-            slot_id=booking.slot_id,
-            party_size=booking.party_size,
-            created_at=booking.created_at,
-        )
+        return _booking_to_dto(booking)
 
     async def mark_slot_taken(self, slot_id: UUID) -> None:
         await self._session.execute(
