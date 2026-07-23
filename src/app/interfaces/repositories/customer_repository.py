@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from uuid import UUID
 
 from src.app.contracts.customer import CustomerDTO
+from src.app.contracts.enums import CustomerStatus
 from src.app.contracts.pagination import PageDTO, PaginationParams
 
 
@@ -20,3 +21,6 @@ class CustomerRepository(ABC):
 
     @abstractmethod
     async def list_all(self, params: PaginationParams) -> PageDTO[CustomerDTO]: ...
+
+    @abstractmethod
+    async def create(self, name: str, status: CustomerStatus, notes: str | None) -> CustomerDTO: ...

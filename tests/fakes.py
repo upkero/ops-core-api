@@ -72,12 +72,18 @@ class FakeCustomerRepository(CustomerRepository):
     async def list_all(self, params: PaginationParams) -> PageDTO[CustomerDTO]:
         return _page(self.customers, params)
 
+    async def create(self, name: str, status: CustomerStatus, notes: str | None) -> CustomerDTO:
+        customer = CustomerDTO(id=uuid4(), name=name, status=status, last_contact_at=None, notes=notes)
+        self.customers.append(customer)
+        return customer
+
 
 class FakeBookingRepository(BookingRepository):
     def __init__(self, slots: Sequence[BookingSlotDTO] = ()) -> None:
         self.slots = {slot.id: slot for slot in slots}
         self.bookings: list[BookingDTO] = []
         self.locked: list[UUID] = []
+        self.by_key: dict[str, BookingDTO] = {}
 
     async def list_available_slots(
         self,
@@ -98,7 +104,16 @@ class FakeBookingRepository(BookingRepository):
         self.locked.append(slot_id)
         return self.slots.get(slot_id)
 
-    async def create_booking(self, customer_id: UUID, slot_id: UUID, party_size: int) -> BookingDTO:
+    async def get_by_idempotency_key(self, idempotency_key: str) -> BookingDTO | None:
+        return self.by_key.get(idempotency_key)
+
+    async def create_booking(
+        self,
+        customer_id: UUID,
+        slot_id: UUID,
+        party_size: int,
+        idempotency_key: str | None = None,
+    ) -> BookingDTO:
         booking = BookingDTO(
             id=uuid4(),
             customer_id=customer_id,
@@ -107,6 +122,8 @@ class FakeBookingRepository(BookingRepository):
             created_at=datetime(2026, 7, 22, tzinfo=UTC),
         )
         self.bookings.append(booking)
+        if idempotency_key is not None:
+            self.by_key[idempotency_key] = booking
         return booking
 
     async def mark_slot_taken(self, slot_id: UUID) -> None:

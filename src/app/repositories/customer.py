@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.contracts.customer import CustomerDTO
+from src.app.contracts.enums import CustomerStatus
 from src.app.contracts.pagination import PageDTO, PaginationParams
 from src.app.interfaces.repositories.customer_repository import CustomerRepository
 from src.app.models.customer import Customer
@@ -37,3 +38,11 @@ class SqlAlchemyCustomerRepository(CustomerRepository):
 
     async def list_all(self, params: PaginationParams) -> PageDTO[CustomerDTO]:
         return await paginate(self._session, select(Customer).order_by(Customer.name), params, _to_dto)
+
+    async def create(self, name: str, status: CustomerStatus, notes: str | None) -> CustomerDTO:
+        row = Customer(name=name, status=status, notes=notes)
+        self._session.add(row)
+        # Flush, not commit: the request-scoped transaction owns the commit.
+        await self._session.flush()
+        await self._session.refresh(row)
+        return _to_dto(row)

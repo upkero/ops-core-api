@@ -1,6 +1,18 @@
 from src.app.exceptions.base import BaseAppException
 
 
+class InvalidInputError(BaseAppException, ValueError):
+    """Raised when arguments reaching a service are unusable.
+
+    A plain ValueError here would escape the handler hierarchy and surface as a
+    500, telling the caller the server broke when in fact their input was wrong.
+    """
+
+    status_code = 422
+    error_code = "invalid_input"
+    default_detail = "Invalid input."
+
+
 class EntityNotFoundError(BaseAppException):
     """Raised when a requested aggregate does not exist."""
 
@@ -15,6 +27,18 @@ class SlotUnavailableError(BaseAppException):
     status_code = 409
     error_code = "slot_unavailable"
     default_detail = "Booking slot is no longer available."
+
+
+class IdempotencyKeyReusedError(BaseAppException):
+    """Raised when a retry token is replayed with different parameters.
+
+    Returning the stored booking would answer a question the caller did not
+    ask; failing loudly surfaces the bug in whoever generates the keys.
+    """
+
+    status_code = 409
+    error_code = "idempotency_key_reused"
+    default_detail = "This Idempotency-Key was already used for a different booking."
 
 
 class SlotCapacityExceededError(BaseAppException):

@@ -2,7 +2,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from src.app.contracts.pagination import PageDTO, PaginationParams
 from src.app.contracts.pricing import PriceQuoteDTO, PricingItemDTO
-from src.app.exceptions.domain import EntityNotFoundError
+from src.app.exceptions.domain import EntityNotFoundError, InvalidInputError
 from src.app.interfaces.pricing.discount_policy import DiscountPolicy
 from src.app.interfaces.repositories.pricing_repository import PricingRepository
 
@@ -23,7 +23,7 @@ class PricingService:
 
     async def quote(self, service_name: str, quantity: int) -> PriceQuoteDTO:
         if quantity < 1:
-            raise ValueError("Quantity must be at least 1.")
+            raise InvalidInputError("Quantity must be at least 1.")
 
         item = await self._repository.get_by_service_name(service_name)
         if item is None:
