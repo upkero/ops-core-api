@@ -219,6 +219,30 @@ The local embedder matches on vocabulary, not meaning. It handles inflection ("c
 `EMBEDDING_DIMENSIONS` must match the `vector(1536)` columns in the schema. A mismatch is rejected
 at startup rather than surfacing as an opaque database error on first insert.
 
+### Changing provider invalidates the index
+
+Vectors produced by two different models occupy different spaces. Cosine distance between them is
+still a computable number, so a provider switch does not fail — it quietly starts returning
+irrelevant results with normal-looking scores. Both models being 1536-dimensional means the
+dimension check above does not catch it either.
+
+Every chunk therefore records the model that embedded it (`provider:model`, e.g. `hashing:v1`), and
+search filters on it in SQL, so mixing spaces is impossible by construction. Switch provider without
+re-indexing and you get a loud error instead of silent nonsense:
+
+```json
+{
+  "detail": "The knowledge base was indexed with hashing:v1, but the configured embedding model is
+             openai:text-embedding-3-small. Vectors from different models are not comparable.
+             Re-index the documents (python -m src.app.cli.seed --force) or restore the previous
+             EMBEDDING_PROVIDER/EMBEDDING_MODEL settings.",
+  "error_code": "embedding_model_mismatch"
+}
+```
+
+The local embedder's fingerprint carries a version (`hashing:v1`) because changing its tokenizer or
+stemmer changes the vector space just as much as swapping providers does.
+
 ## Configuration
 
 All settings come from the environment; see [`.env.example`](.env.example) for the annotated list.
@@ -398,6 +422,22 @@ n-граммы, с лёгким стеммингом и L2-нормализац�
 слова он связывает («cancel» находит «cancelled»), синонимы — нет. Для настоящей семантики
 переключите `EMBEDDING_PROVIDER` на `openai` или `openai_compatible`; за пределами `llm/` не
 меняется ничего.
+
+### Смена провайдера обесценивает индекс
+
+Векторы двух разных моделей лежат в разных пространствах. Косинусное расстояние между ними всё
+равно считается, поэтому смена провайдера **не падает** — она тихо начинает возвращать нерелевантные
+результаты с нормально выглядящими score. Обе модели 1536-мерные, так что проверка размерности этого
+тоже не ловит.
+
+Поэтому каждый чанк хранит модель, которая его векторизовала (`провайдер:модель`, например
+`hashing:v1`), а поиск фильтрует по ней прямо в SQL — смешать пространства невозможно
+конструктивно. Если сменить провайдера и не переиндексировать, вместо тихого мусора придёт явная
+ошибка `embedding_model_mismatch` с указанием обеих моделей и командой для починки
+(`python -m src.app.cli.seed --force`).
+
+В отпечатке локального эмбеддера есть версия (`hashing:v1`), потому что смена токенизатора или
+стеммера меняет пространство векторов ровно так же, как смена провайдера.
 
 ## Разработка
 

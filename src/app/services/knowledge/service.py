@@ -2,7 +2,7 @@ import math
 from collections.abc import Sequence
 
 from src.app.contracts.knowledge import ChunkMatchDTO, DocumentDTO, NewChunk, NewDocument
-from src.app.exceptions.embeddings import EmbeddingInputError
+from src.app.exceptions.embeddings import EmbeddingInputError, EmbeddingModelMismatchError
 from src.app.interfaces.llm.embedding_client import EmbeddingClient
 from src.app.interfaces.repositories.knowledge_repository import KnowledgeRepository
 from src.app.services.knowledge.chunker import DEFAULT_MAX_CHARS, DEFAULT_OVERLAP, chunk_text
@@ -47,6 +47,7 @@ class KnowledgeService:
                 NewChunk(chunk_index=index, chunk_text=chunk, embedding=vector)
                 for index, (chunk, vector) in enumerate(zip(chunks, vectors, strict=True))
             ],
+            embedding_model=self._embedding_client.fingerprint,
         )
         return await self._repository.add_document(document)
 
@@ -54,8 +55,30 @@ class KnowledgeService:
         if not query.strip():
             raise EmbeddingInputError("Search query must not be empty.")
         top_k = min(max(top_k, 1), MAX_TOP_K)
+
+        fingerprint = self._embedding_client.fingerprint
         embedding = await self._embedding_client.embed_query(query)
-        return await self._repository.search_chunks(embedding, top_k)
+        matches = await self._repository.search_chunks(embedding, top_k, fingerprint)
+        if not matches:
+            await self._explain_empty_result(fingerprint)
+        return matches
+
+    async def _explain_empty_result(self, fingerprint: str) -> None:
+        """Distinguish "nothing indexed" from "indexed by a different model".
+
+        The second case is the dangerous one: the knowledge base looks full,
+        the search returns nothing, and without this the only clue would be an
+        empty list.
+        """
+        stored = [model for model in await self._repository.list_embedding_models() if model != fingerprint]
+        if not stored:
+            return
+        raise EmbeddingModelMismatchError(
+            f"The knowledge base was indexed with {', '.join(sorted(stored))}, but the configured "
+            f"embedding model is {fingerprint}. Vectors from different models are not comparable. "
+            f"Re-index the documents (python -m src.app.cli.seed --force) or restore the previous "
+            f"EMBEDDING_PROVIDER/EMBEDDING_MODEL settings."
+        )
 
     @staticmethod
     def _mean_vector(vectors: Sequence[Sequence[float]]) -> Sequence[float] | None:

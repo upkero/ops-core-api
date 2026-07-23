@@ -24,6 +24,8 @@ class NewDocument:
     content: str
     embedding: Sequence[float] | None
     chunks: Sequence[NewChunk]
+    # Fingerprint of the model that produced every vector in this document.
+    embedding_model: str
 
 
 @dataclass(frozen=True, slots=True)

@@ -10,5 +10,19 @@ class KnowledgeRepository(ABC):
         """Persist a document together with its pre-embedded chunks."""
 
     @abstractmethod
-    async def search_chunks(self, embedding: Sequence[float], top_k: int) -> Sequence[ChunkMatchDTO]:
-        """Nearest chunks by cosine distance, closest first."""
+    async def search_chunks(
+        self,
+        embedding: Sequence[float],
+        top_k: int,
+        embedding_model: str,
+    ) -> Sequence[ChunkMatchDTO]:
+        """Nearest chunks by cosine distance, closest first.
+
+        Restricted to chunks embedded by `embedding_model`: vectors from two
+        models occupy different spaces, and comparing across them produces
+        plausible scores rather than an error.
+        """
+
+    @abstractmethod
+    async def list_embedding_models(self) -> Sequence[str]:
+        """Distinct models present in storage. Used to explain an empty search."""

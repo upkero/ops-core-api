@@ -67,6 +67,7 @@ async def _store_chunks(session: AsyncSession, embedder: HashingEmbeddingClient)
             title="Clinic handbook",
             content="\n\n".join(CHUNKS),
             embedding=vectors[0],
+            embedding_model=embedder.fingerprint,
             chunks=[
                 NewChunk(chunk_index=index, chunk_text=chunk, embedding=vector)
                 for index, (chunk, vector) in enumerate(zip(CHUNKS, vectors, strict=True))
@@ -82,7 +83,11 @@ async def test_search_ranks_the_relevant_chunk_first(
 ) -> None:
     repository = await _store_chunks(session, embedder)
 
-    matches = await repository.search_chunks(await embedder.embed_query("how do I cancel my appointment"), top_k=3)
+    matches = await repository.search_chunks(
+        await embedder.embed_query("how do I cancel my appointment"),
+        top_k=3,
+        embedding_model=embedder.fingerprint,
+    )
 
     assert matches[0].chunk_text == CHUNKS[0]
     assert matches[0].document_title == "Clinic handbook"
@@ -94,7 +99,11 @@ async def test_search_returns_matches_in_ascending_distance_order(
 ) -> None:
     repository = await _store_chunks(session, embedder)
 
-    matches = await repository.search_chunks(await embedder.embed_query("underground parking garage"), top_k=3)
+    matches = await repository.search_chunks(
+        await embedder.embed_query("underground parking garage"),
+        top_k=3,
+        embedding_model=embedder.fingerprint,
+    )
 
     distances = [match.distance for match in matches]
     assert distances == sorted(distances)
@@ -111,7 +120,7 @@ async def test_score_stays_within_cosine_range_for_a_non_normalised_query(
     repository = SqlAlchemyKnowledgeRepository(session)
     raw = [value * 7.5 for value in await embedder.embed_query("parking garage")]
 
-    matches = await repository.search_chunks(raw, top_k=3)
+    matches = await repository.search_chunks(raw, top_k=3, embedding_model=embedder.fingerprint)
 
     assert all(-1.0 <= match.score <= 1.0 for match in matches)
     assert matches[0].chunk_text == CHUNKS[1]
@@ -120,7 +129,31 @@ async def test_score_stays_within_cosine_range_for_a_non_normalised_query(
 async def test_top_k_limits_the_result_size(session: AsyncSession, embedder: HashingEmbeddingClient) -> None:
     repository = await _store_chunks(session, embedder)
 
-    assert len(await repository.search_chunks(await embedder.embed_query("massage"), top_k=1)) == 1
+    found = await repository.search_chunks(
+        await embedder.embed_query("massage"),
+        top_k=1,
+        embedding_model=embedder.fingerprint,
+    )
+
+    assert len(found) == 1
+
+
+async def test_search_excludes_chunks_from_another_model(
+    session: AsyncSession,
+    embedder: HashingEmbeddingClient,
+) -> None:
+    # The filter has to hold in SQL, not just in the service: this is the query
+    # that would otherwise happily compare vectors from two different models.
+    repository = await _store_chunks(session, embedder)
+
+    matches = await repository.search_chunks(
+        await embedder.embed_query("cancel appointment"),
+        top_k=10,
+        embedding_model="openai:text-embedding-3-small",
+    )
+
+    assert matches == []
+    assert sorted(await repository.list_embedding_models()) == [embedder.fingerprint]
 
 
 async def test_booking_marks_the_slot_taken_in_the_database(session: AsyncSession) -> None:

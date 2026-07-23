@@ -124,12 +124,16 @@ class _StoredChunk:
     chunk_index: int
     chunk_text: str
     embedding: Sequence[float]
+    embedding_model: str
 
 
 class FakeKnowledgeRepository(KnowledgeRepository):
     def __init__(self) -> None:
         self.documents: list[NewDocument] = []
         self.chunks: list[_StoredChunk] = []
+
+    async def list_embedding_models(self) -> Sequence[str]:
+        return sorted({chunk.embedding_model for chunk in self.chunks})
 
     async def add_document(self, document: NewDocument) -> DocumentDTO:
         self.documents.append(document)
@@ -142,6 +146,7 @@ class FakeKnowledgeRepository(KnowledgeRepository):
                 chunk_index=chunk.chunk_index,
                 chunk_text=chunk.chunk_text,
                 embedding=chunk.embedding,
+                embedding_model=document.embedding_model,
             )
             for chunk in document.chunks
         )
@@ -153,9 +158,15 @@ class FakeKnowledgeRepository(KnowledgeRepository):
             created_at=datetime(2026, 7, 22, tzinfo=UTC),
         )
 
-    async def search_chunks(self, embedding: Sequence[float], top_k: int) -> Sequence[ChunkMatchDTO]:
+    async def search_chunks(
+        self,
+        embedding: Sequence[float],
+        top_k: int,
+        embedding_model: str,
+    ) -> Sequence[ChunkMatchDTO]:
+        candidates = [chunk for chunk in self.chunks if chunk.embedding_model == embedding_model]
         scored = sorted(
-            ((_cosine_distance(embedding, chunk.embedding), chunk) for chunk in self.chunks),
+            ((_cosine_distance(embedding, chunk.embedding), chunk) for chunk in candidates),
             key=lambda pair: pair[0],
         )
         return [
@@ -183,12 +194,17 @@ class FakeEmbeddingClient(EmbeddingClient):
     """Records what it was asked to embed so tests can assert on batching."""
 
     dimension: int = 8
+    model: str = "v1"
     batches: list[Sequence[str]] = field(default_factory=list)
     queries: list[str] = field(default_factory=list)
 
     @property
     def provider_name(self) -> str:
         return "fake"
+
+    @property
+    def model_name(self) -> str:
+        return self.model
 
     @property
     def dimensions(self) -> int:

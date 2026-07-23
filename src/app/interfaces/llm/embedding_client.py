@@ -17,7 +17,23 @@ class EmbeddingClient(ABC):
 
     @property
     @abstractmethod
+    def model_name(self) -> str: ...
+
+    @property
+    @abstractmethod
     def dimensions(self) -> int: ...
+
+    @property
+    def fingerprint(self) -> str:
+        """Identifies the vector space these embeddings live in.
+
+        Vectors from two different models are not comparable, and cosine
+        distance between them returns a plausible number rather than an error.
+        Storing this alongside every vector is what lets the search refuse to
+        mix spaces instead of silently returning nonsense. Defined once here so
+        every implementation reports it the same way.
+        """
+        return f"{self.provider_name}:{self.model_name}"
 
     @abstractmethod
     async def embed_query(self, text: str) -> Sequence[float]: ...

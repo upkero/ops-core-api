@@ -24,6 +24,10 @@ class OpenAICompatibleEmbeddingClient(EmbeddingClient):
         return self._settings.provider
 
     @property
+    def model_name(self) -> str:
+        return self._settings.model
+
+    @property
     def dimensions(self) -> int:
         return self._settings.dimensions
 

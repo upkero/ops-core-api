@@ -21,6 +21,18 @@ class EmbeddingInputError(EmbeddingError, ValueError):
     error_code = "embedding_input_error"
 
 
+class EmbeddingModelMismatchError(EmbeddingError):
+    """Raised when stored vectors came from a different model than the one configured.
+
+    Deliberately loud: comparing vectors across models yields confident-looking
+    scores rather than an error, so without this the only symptom would be
+    silently irrelevant search results.
+    """
+
+    error_code = "embedding_model_mismatch"
+    default_detail = "Stored embeddings were produced by a different model."
+
+
 class EmbeddingGenerationError(EmbeddingError):
     """Raised when the provider fails to return embeddings."""
 

@@ -7,6 +7,8 @@ from collections.abc import Sequence
 from src.app.exceptions.embeddings import EmbeddingInputError
 from src.app.interfaces.llm.embedding_client import EmbeddingClient
 
+_ALGORITHM_VERSION = "v1"
+
 _TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
 
 # Character n-grams are prefixed so they can never collide with a real word,
@@ -49,6 +51,13 @@ class HashingEmbeddingClient(EmbeddingClient):
     @property
     def provider_name(self) -> str:
         return "hashing"
+
+    @property
+    def model_name(self) -> str:
+        # Versioned: changing the tokenizer, stemmer or n-gram settings below
+        # produces a different vector space, which makes previously stored
+        # embeddings incomparable. Bump this when any of that changes.
+        return _ALGORITHM_VERSION
 
     @property
     def dimensions(self) -> int:

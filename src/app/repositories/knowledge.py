@@ -28,6 +28,7 @@ class SqlAlchemyKnowledgeRepository(KnowledgeRepository):
                     chunk_text=chunk.chunk_text,
                     embedding=list(chunk.embedding),
                     chunk_index=chunk.chunk_index,
+                    embedding_model=document.embedding_model,
                 )
                 for chunk in document.chunks
             ]
@@ -43,7 +44,16 @@ class SqlAlchemyKnowledgeRepository(KnowledgeRepository):
             created_at=row.created_at,
         )
 
-    async def search_chunks(self, embedding: Sequence[float], top_k: int) -> Sequence[ChunkMatchDTO]:
+    async def list_embedding_models(self) -> Sequence[str]:
+        result = await self._session.scalars(select(DocumentChunk.embedding_model).distinct())
+        return list(result)
+
+    async def search_chunks(
+        self,
+        embedding: Sequence[float],
+        top_k: int,
+        embedding_model: str,
+    ) -> Sequence[ChunkMatchDTO]:
         # pgvector's `<=>` (cosine distance) is used directly rather than `<->`
         # (L2) plus a conversion: converting L2 to cosine is only valid when
         # every vector is unit length, which is not guaranteed across embedding
@@ -53,6 +63,9 @@ class SqlAlchemyKnowledgeRepository(KnowledgeRepository):
         stmt = (
             select(DocumentChunk, KnowledgeDocument.title, distance)
             .join(KnowledgeDocument, DocumentChunk.document_id == KnowledgeDocument.id)
+            # Filtering here, rather than checking afterwards, makes a
+            # cross-model comparison impossible by construction.
+            .where(DocumentChunk.embedding_model == embedding_model)
             .order_by(distance)
             .limit(top_k)
         )

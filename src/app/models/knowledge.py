@@ -43,3 +43,7 @@ class DocumentChunk(Base):
     chunk_text: Mapped[str] = mapped_column(Text)
     embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIMENSIONS))
     chunk_index: Mapped[int] = mapped_column(Integer)
+    # Which model produced `embedding`. Vectors from different models are not
+    # comparable, so search filters on this instead of trusting that whatever
+    # is stored matches the currently configured provider.
+    embedding_model: Mapped[str] = mapped_column(String(100), index=True)
