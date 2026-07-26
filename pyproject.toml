@@ -2,6 +2,10 @@
 name = "ops-core-api"
 version = "0.1.0"
 description = "Central operations API: CRM entities, bookings, pricing and a pgvector knowledge base"
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "upkero" }]
+keywords = ["fastapi", "pgvector", "semantic-search", "rest-api", "crm"]
 requires-python = ">=3.12"
 dependencies = [
     "fastapi[standard]>=0.115.0",

@@ -1,5 +1,9 @@
 # ops-core-api
 
+[![CI](https://github.com/upkero/ops-core-api/actions/workflows/ci.yml/badge.svg)](https://github.com/upkero/ops-core-api/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+
 Central operations backend for a fictional multi-business (restaurant + wellness clinic +
 consulting): customers, bookable slots, bookings, service pricing, and a knowledge base with
 semantic search over pgvector.
