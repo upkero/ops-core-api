@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request, Response, status
 
 from src.app.api.v1.dependencies import KnowledgeServiceDep
-from src.app.api.v1.middleware.rate_limit import EMBEDDING_ENDPOINT_LIMIT, limiter
+from src.app.api.v1.middleware.rate_limit import embedding_endpoint_limit, limiter
 from src.app.schemas.document import (
     ChunkMatchResponse,
     DocumentCreateRequest,
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/documents", tags=["knowledge"])
 # X-RateLimit-* headers to. Routers are the HTTP layer, so handling them here
 # breaks no boundary — the services below stay free of both.
 @router.post("", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED)
-@limiter.limit(EMBEDDING_ENDPOINT_LIMIT)
+@limiter.limit(embedding_endpoint_limit)
 async def add_document(
     request: Request,
     response: Response,
@@ -31,7 +31,7 @@ async def add_document(
 
 
 @router.post("/search", response_model=DocumentSearchResponse)
-@limiter.limit(EMBEDDING_ENDPOINT_LIMIT)
+@limiter.limit(embedding_endpoint_limit)
 async def search_documents(
     request: Request,
     response: Response,

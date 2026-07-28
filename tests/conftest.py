@@ -1,36 +1,22 @@
 import os
+from collections.abc import AsyncGenerator, Iterator
 
-# Set before importing anything from src: settings are read at import time
-# (the rate limiter builds its limit strings from them) and are then cached.
-# Environment variables take priority over any local .env file.
-TEST_API_KEY = "test-api-key-long-enough-1234567890"
-os.environ["API_KEY"] = TEST_API_KEY
-os.environ["RATE_LIMIT_PER_MINUTE"] = "5"
-os.environ["EMBEDDING_RATE_LIMIT_PER_MINUTE"] = "3"
-os.environ["CORS_ALLOWED_ORIGINS"] = "http://localhost:3000"
-os.environ["EMBEDDING_PROVIDER"] = "hashing"
-os.environ.setdefault("DB_URL", "postgresql+asyncpg://unused:unused@localhost:1/unused")
-os.environ.setdefault("LOG_LEVEL", "WARNING")
+import pytest
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
 
-from collections.abc import AsyncGenerator, Iterator  # noqa: E402
-
-import pytest  # noqa: E402
-from fastapi import FastAPI  # noqa: E402
-from httpx import ASGITransport, AsyncClient  # noqa: E402
-
-from src.app.api.v1.dependencies import (  # noqa: E402
+from src.app.api.v1.dependencies import (
     get_booking_service,
     get_customer_service,
     get_knowledge_service,
     get_pricing_service,
 )
-from src.app.api.v1.middleware.rate_limit import limiter, reset_global_rate_limit  # noqa: E402
-from src.app.services.booking import BookingService  # noqa: E402
-from src.app.services.customer import CustomerService  # noqa: E402
-from src.app.services.knowledge import KnowledgeService  # noqa: E402
-from src.app.services.pricing import PricingService, QuantityTierDiscountPolicy  # noqa: E402
-from src.main import create_app  # noqa: E402
-from tests.fakes import (  # noqa: E402
+from src.app.api.v1.middleware.rate_limit import limiter, reset_global_rate_limit
+from src.app.services.booking import BookingService
+from src.app.services.customer import CustomerService
+from src.app.services.knowledge import KnowledgeService
+from src.app.services.pricing import PricingService, QuantityTierDiscountPolicy
+from tests.fakes import (
     FakeBookingRepository,
     FakeCustomerRepository,
     FakeEmbeddingClient,
@@ -40,6 +26,19 @@ from tests.fakes import (  # noqa: E402
     make_pricing_item,
     make_slot,
 )
+
+# No module under src/app reads settings at import time, so these assignments
+# do not have to come before the imports above — which is why this file needs
+# no per-import lint suppressions. Environment variables take priority over any
+# local .env, so a developer's own file cannot change what the tests assert on.
+TEST_API_KEY = "test-api-key-long-enough-1234567890"
+os.environ["API_KEY"] = TEST_API_KEY
+os.environ["RATE_LIMIT_PER_MINUTE"] = "5"
+os.environ["EMBEDDING_RATE_LIMIT_PER_MINUTE"] = "3"
+os.environ["CORS_ALLOWED_ORIGINS"] = "http://localhost:3000"
+os.environ["EMBEDDING_PROVIDER"] = "hashing"
+os.environ.setdefault("DB_URL", "postgresql+asyncpg://unused:unused@localhost:1/unused")
+os.environ.setdefault("LOG_LEVEL", "WARNING")
 
 
 @pytest.fixture(autouse=True)
@@ -116,6 +115,11 @@ def build_app(
     Middleware, routing, schema validation and exception handling are all the
     production ones, so these tests exercise the wiring rather than a mock of it.
     """
+    # Imported here rather than at module scope: `src.main` builds the ASGI app
+    # uvicorn serves as a side effect of being imported, and that reads settings.
+    # By the time this runs the environment above is in place.
+    from src.main import create_app
+
     application = create_app()
     application.state.container = StubContainer(embedding_client=embedding_client)
 

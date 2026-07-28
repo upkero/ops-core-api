@@ -3,7 +3,7 @@ from collections.abc import Awaitable, Callable
 from logging import getLogger
 
 from fastapi import FastAPI, Request, Response
-from limits import parse
+from limits import RateLimitItem, parse
 from limits.storage import MemoryStorage
 from limits.strategies import FixedWindowRateLimiter
 from slowapi import Limiter
@@ -16,21 +16,29 @@ from src.app.exceptions.rate_limit import RateLimitExceededError
 
 logger = getLogger(__name__)
 
-_settings = get_app_settings()
-
-# ponytail: in-memory counters, so limits are per process. Correct while the
+# NOTE: in-memory counters, so limits are per process. Correct while the
 # Dockerfile pins uvicorn to one worker; swap MemoryStorage for Redis storage
 # if it is ever scaled out. get_remote_address also sees the proxy's IP unless
 # uvicorn runs with --proxy-headers behind a trusted proxy.
-limiter = Limiter(
-    key_func=get_remote_address,
-    default_limits=[f"{_settings.rate_limit_per_minute}/minute"],
-    headers_enabled=True,
-)
 
-# Stricter allowance for the endpoints that call the embedding provider, which
-# cost real money and latency per request. Applied with slowapi's decorator.
-EMBEDDING_ENDPOINT_LIMIT = f"{_settings.embedding_rate_limit_per_minute}/minute"
+
+def global_limit() -> str:
+    return f"{get_app_settings().rate_limit_per_minute}/minute"
+
+
+def embedding_endpoint_limit() -> str:
+    """Stricter allowance for the endpoints that call the embedding provider,
+    which cost real money and latency per request. Applied with slowapi's
+    decorator."""
+    return f"{get_app_settings().embedding_rate_limit_per_minute}/minute"
+
+
+# Both limits are passed to slowapi as callables rather than formatted strings.
+# slowapi resolves a callable per request, which is what keeps this module free
+# of settings at import time: a decorator argument is evaluated when the module
+# is imported, so a literal here would read the environment before a test (or
+# anything else) has had a chance to arrange it.
+limiter = Limiter(key_func=get_remote_address, default_limits=[global_limit], headers_enabled=True)
 
 # The global cap is enforced here rather than through SlowAPIMiddleware.
 # slowapi resolves the matching route to decide whether a request is exempt,
@@ -40,7 +48,6 @@ EMBEDDING_ENDPOINT_LIMIT = f"{_settings.embedding_rate_limit_per_minute}/minute"
 # exempt, and quietly applies no limit at all. Counting here against the
 # `limits` public API keeps the cap working regardless of how FastAPI chooses
 # to represent nested routers.
-_global_limit = parse(f"{_settings.rate_limit_per_minute}/minute")
 _global_limiter = FixedWindowRateLimiter(MemoryStorage())
 
 # Health checks are polled by the container runtime and by the four agent
@@ -54,11 +61,11 @@ def reset_global_rate_limit() -> None:
     _global_limiter.storage.reset()
 
 
-def _rate_limit_headers(identifier: str, scope: str) -> dict[str, str]:
-    stats = _global_limiter.get_window_stats(_global_limit, identifier, scope)
+def _rate_limit_headers(limit: RateLimitItem, identifier: str, scope: str) -> dict[str, str]:
+    stats = _global_limiter.get_window_stats(limit, identifier, scope)
     return {
         "Retry-After": str(max(0, int(stats.reset_time - time.time()))),
-        "X-RateLimit-Limit": str(_global_limit.amount),
+        "X-RateLimit-Limit": str(limit.amount),
         "X-RateLimit-Remaining": str(stats.remaining),
         "X-RateLimit-Reset": str(int(stats.reset_time)),
     }
@@ -67,6 +74,10 @@ def _rate_limit_headers(identifier: str, scope: str) -> dict[str, str]:
 def register_rate_limiting(app: FastAPI) -> None:
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, handle_rate_limit_exceeded)
+
+    # Settings are read here, at application build time, rather than at module
+    # import: importing this module must not depend on a configured environment.
+    limit = parse(global_limit())
 
     @app.middleware("http")
     async def global_rate_limit_middleware(
@@ -80,16 +91,16 @@ def register_rate_limiting(app: FastAPI) -> None:
         identifier = get_remote_address(request)
         # Counted per path so that hammering one endpoint cannot lock a client
         # out of the whole API.
-        if not _global_limiter.hit(_global_limit, identifier, path):
+        if not _global_limiter.hit(limit, identifier, path):
             logger.warning("Rate limit exceeded for %s on %s %s", identifier, request.method, path)
-            headers = _rate_limit_headers(identifier, path)
+            headers = _rate_limit_headers(limit, identifier, path)
             return error_response_from_exception(
-                RateLimitExceededError(f"Rate limit exceeded: {_global_limit}."),
+                RateLimitExceededError(f"Rate limit exceeded: {limit}."),
                 headers=headers,
             )
 
         response = await call_next(request)
-        response.headers.update(_rate_limit_headers(identifier, path))
+        response.headers.update(_rate_limit_headers(limit, identifier, path))
         return response
 
 
