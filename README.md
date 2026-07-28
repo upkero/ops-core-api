@@ -4,9 +4,14 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 
-Central operations backend for a fictional multi-business (restaurant + wellness clinic +
-consulting): customers, bookable slots, bookings, service pricing, and a knowledge base with
-semantic search over pgvector.
+Central operations backend for a fictional multi-business: customers, bookable slots, bookings,
+service pricing, and a knowledge base with semantic search over pgvector.
+
+The operator is one company running three things under one roof — a restaurant, a wellness clinic
+and a set of hireable meeting rooms. That is why a single `resource_type` covers `table`,
+`treatment_room` and `meeting_room`, and why the same customer list serves a dinner reservation and
+a course of massages. The five services in this portfolio are five faces of that one business, not
+five unrelated demos.
 
 It is the source of truth that four separate agent services (voice, RAG, sales, MCP) read from,
 but it stands on its own — a plain HTTP API with no agent framework anywhere in it.
@@ -28,8 +33,7 @@ but it stands on its own — a plain HTTP API with no agent framework anywhere i
 
 Layered, with a strict inward dependency rule — outer layers depend on inner ones, never the
 reverse. HTTP schemas stop at the router; everything below passes frozen dataclass contracts, so a
-service never sees a `Request` and never sees SQLAlchemy. The full description is in
-[`docs/architecture.md`](docs/architecture.md).
+service never sees a `Request` and never sees SQLAlchemy.
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -77,11 +81,13 @@ embedder, so semantic search works offline out of the box. See
 
 ## API
 
-Every endpoint under `/api/v1` requires the `X-API-Key` header (see [Security](#security)). Only `/health` and the schema endpoints answer without it.
+Every endpoint under `/api/v1` requires the `X-API-Key` header (see [Security](#security)) — reads
+included. Only the health probes and the schema endpoints answer without it.
 
 | Method | Path | Auth |
 |---|---|---|
-| `GET` | `/health` | open |
+| `GET` | `/health/live` | open |
+| `GET` | `/health/ready` | open |
 | `GET` | `/api/v1/customers?search=&limit=&offset=` | **key** |
 | `GET` | `/api/v1/customers/{id}` | **key** |
 | `POST` | `/api/v1/customers` | **key** |
@@ -99,18 +105,24 @@ Every endpoint under `/api/v1` requires the `X-API-Key` header (see [Security](#
 ```bash
 API_KEY=$(grep '^API_KEY=' .env | cut -d'"' -f2)
 
-# Service and database status
-curl localhost:8000/health
+# Is the process up (what the container HEALTHCHECK polls)
+curl localhost:8000/health/live
+# {"status":"ok"}
+
+# Can it serve traffic — 503 when the database is unreachable
+curl localhost:8000/health/ready
 # {"status":"ok","database":"ok"}
 
 # Find a customer
-curl "localhost:8000/api/v1/customers?search=anna"
+curl "localhost:8000/api/v1/customers?search=anna" -H "X-API-Key: $API_KEY"
 
 # Free slots for a given day, one page at a time
-curl "localhost:8000/api/v1/booking-slots?date=2026-07-24&resource_type=table&limit=10&offset=0"
+curl "localhost:8000/api/v1/booking-slots?date=2026-07-24&resource_type=treatment_room&limit=10&offset=0" \
+  -H "X-API-Key: $API_KEY"
 
 # Price six sessions — the volume discount is applied by the service layer
-curl "localhost:8000/api/v1/pricing?service=Deep%20Tissue%20Massage&quantity=6"
+curl "localhost:8000/api/v1/pricing?service=Deep%20Tissue%20Massage&quantity=6" \
+  -H "X-API-Key: $API_KEY"
 # {"service_name":"Deep Tissue Massage","unit_price":"120.00","quantity":6,
 #  "subtotal":"720.00","discount_percent":"10","discount_amount":"72.00","total":"648.00"}
 
@@ -122,13 +134,13 @@ curl -X POST localhost:8000/api/v1/customers \
 # Book a slot (repeat the same call and it returns 409 slot_unavailable)
 curl -X POST localhost:8000/api/v1/bookings \
   -H "X-API-Key: $API_KEY" -H 'Content-Type: application/json' \
-  -d '{"customer_id":"<uuid>","slot_id":"<uuid>","party_size":2}'
+  -d '{"guest_name":"Priya Raman","slot_id":"<uuid>","party_size":2}'
 
 # The same booking, retried safely after a dropped connection
 curl -X POST localhost:8000/api/v1/bookings \
   -H "X-API-Key: $API_KEY" -H 'Idempotency-Key: 6f1c8b0e-…' \
   -H 'Content-Type: application/json' \
-  -d '{"customer_id":"<uuid>","slot_id":"<uuid>","party_size":2}'
+  -d '{"guest_name":"Priya Raman","slot_id":"<uuid>","party_size":2}'
 
 # Add a document — it is chunked and embedded on the way in
 curl -X POST localhost:8000/api/v1/documents \
@@ -137,7 +149,7 @@ curl -X POST localhost:8000/api/v1/documents \
 
 # Semantic search
 curl -X POST localhost:8000/api/v1/documents/search \
-  -H 'Content-Type: application/json' \
+  -H "X-API-Key: $API_KEY" -H 'Content-Type: application/json' \
   -d '{"query":"how do I cancel my appointment","top_k":3}'
 ```
 
@@ -157,6 +169,17 @@ The last call returns the cancellation policy first:
   ]
 }
 ```
+
+### Liveness and readiness are two questions
+
+`/health/live` answers "is this process running" and checks nothing else. `/health/ready` answers
+"can it serve traffic", which here means the database responds, and returns `503` when it does not.
+
+They are separate because the answers have different consequences. The container `HEALTHCHECK`
+polls `/health/live`: a liveness probe that touches the database restarts a perfectly healthy
+container every time Postgres blinks — a restart cannot fix a database, and the restart loop makes
+the outage worse. The four agent services poll `/health/ready` and treat exactly `200` as ready, so
+they degrade gracefully instead of calling an API that cannot answer.
 
 ### Pagination
 
@@ -256,15 +279,20 @@ Every error uses one envelope, so a client has a single shape to handle:
 { "detail": "Booking slot '...' is already taken.", "error_code": "slot_unavailable" }
 ```
 
+Every `error_code` the API can emit is listed in [`docs/error-codes.json`](docs/error-codes.json),
+generated from the exception classes by `python -m src.app.cli.export_error_codes`. It is committed
+because the four consumers keep a copy as a test fixture; a test here fails when the file falls
+behind the classes, so a renamed code cannot quietly reach an agent that maps it to a phrase.
+
 > **Money is serialised as a string** (`"120.00"`), not a number. Prices are `Decimal` end to end;
 > emitting floats would hand clients a value that cannot represent cents exactly.
 
 ## Security
 
 - **API key** — every endpoint under `/api/v1` requires `X-API-Key`, compared with
-  `secrets.compare_digest`. `/health` stays open for the container runtime, and `/docs` +
-  `/openapi.json` stay open so Swagger UI can render. Swagger publishes the scheme, so **Authorize**
-  in `/docs` works.
+  `secrets.compare_digest`. `/health/live` and `/health/ready` stay open for the container runtime
+  and the four consumers, and `/docs` + `/openapi.json` stay open so Swagger UI can render. Swagger
+  publishes the scheme, so **Authorize** in `/docs` works.
 - One rule, declared once: the guard is a `Security()` dependency on the `/api/v1` router, so a new
   router cannot be added unprotected by accident, and FastAPI derives the OpenAPI padlock from the
   same object that enforces it — there is no hand-written schema to drift.
@@ -274,8 +302,10 @@ Every error uses one envelope, so a client has a single shape to handle:
 - **CORS** — origins from `CORS_ALLOWED_ORIGINS`, credentials disabled (the key travels in a
   header, never a cookie).
 
-Middleware runs `CORS → request_id → api_key → rate_limit`, so a rejection still comes back with
-CORS headers and a request id instead of surfacing as an opaque browser error.
+Middleware runs `CORS → request_id → rate_limit → routes`, so a rejection still comes back with
+CORS headers and a request id instead of surfacing as an opaque browser error. The key check is not
+in that chain: it is a `Security()` dependency on the router (`api/v1/dependencies/security.py`),
+which is why it runs after the rate limit and appears in the OpenAPI schema for free.
 
 ### Why the key is on reads too
 
@@ -406,9 +436,13 @@ uv run python -m src.app.cli.seed     # seed demo data (idempotent; --force to r
 
 # ops-core-api (русская версия)
 
-Центральный backend вымышленного мульти-бизнеса (ресторан + wellness-клиника + консалтинг):
-клиенты, слоты для брони, бронирования, прайс услуг и база знаний с семантическим поиском
-на pgvector.
+Центральный backend вымышленного мульти-бизнеса: клиенты, слоты для брони, бронирования, прайс
+услуг и база знаний с семантическим поиском на pgvector.
+
+Оператор — одна компания, у которой под одной крышей три направления: ресторан, wellness-клиника и
+переговорные в аренду. Отсюда единый `resource_type` со значениями `table`, `treatment_room` и
+`meeting_room` и общий список клиентов на ужин и на курс массажа. Пять сервисов этого портфолио —
+пять лиц одного бизнеса, а не пять несвязанных демо.
 
 Это источник правды для четырёх агентских сервисов (voice, RAG, sales, MCP), но он самодостаточен —
 обычный HTTP API без единого агентского фреймворка внутри.
@@ -426,8 +460,8 @@ uv run python -m src.app.cli.seed     # seed demo data (idempotent; --force to r
 
 Слоистая, со строгим правилом однонаправленных зависимостей: внешние слои зависят от внутренних,
 никогда наоборот. Pydantic-схемы живут только на границе HTTP, ниже передаются frozen-dataclass
-контракты — сервис никогда не видит ни `Request`, ни SQLAlchemy. Подробности — в
-[`docs/architecture.md`](docs/architecture.md), диаграмма слоёв в английской части выше.
+контракты — сервис никогда не видит ни `Request`, ни SQLAlchemy. Диаграмма слоёв — в английской
+части выше.
 
 | Паттерн | Где | Зачем |
 |---|---|---|
@@ -455,7 +489,20 @@ docker compose up --build
 ## Эндпоинты и примеры
 
 Список путей, примеры `curl` и формат ответов — в английской части выше
-([API](#api)); они одинаковы для обеих версий. Чтение открыто, запись требует заголовка `X-API-Key`.
+([API](#api)); они одинаковы для обеих версий. Заголовок `X-API-Key` обязателен на всех эндпоинтах
+`/api/v1`, включая чтение; без ключа отвечают только `/health/live`, `/health/ready` и схема
+(`/docs`, `/openapi.json`).
+
+### Liveness и readiness — два разных вопроса
+
+`/health/live` отвечает «процесс жив» и больше не проверяет ничего. `/health/ready` отвечает «может
+ли сервис обслуживать трафик», то есть отвечает ли база, и отдаёт `503`, если нет.
+
+Разделены они потому, что у ответов разные последствия. `HEALTHCHECK` контейнера опрашивает
+`/health/live`: liveness-проба, которая ходит в базу, перезапускает полностью здоровый контейнер
+каждый раз, когда моргнул Postgres, — рестарт базу не чинит, а цикл рестартов делает аварию хуже.
+Четыре агентских сервиса опрашивают `/health/ready` и считают готовностью ровно `200`, поэтому они
+деградируют штатно, а не зовут API, который всё равно не ответит.
 
 ### Пагинация
 
@@ -547,9 +594,9 @@ lookup в середину живого звонка.
 ## Безопасность
 
 - **API-ключ** — требуется на всех эндпоинтах под `/api/v1`, сравнение через
-  `secrets.compare_digest`. Открытыми остаются только `/health` (его опрашивает docker) и
-  `/docs` с `/openapi.json` (иначе Swagger UI не отрисуется). Схема опубликована в OpenAPI, поэтому
-  в `/docs` работает кнопка **Authorize**.
+  `secrets.compare_digest`. Открытыми остаются только `/health/live` и `/health/ready` (их
+  опрашивают docker и четыре потребителя) и `/docs` с `/openapi.json` (иначе Swagger UI не
+  отрисуется). Схема опубликована в OpenAPI, поэтому в `/docs` работает кнопка **Authorize**.
 - Одно правило, объявленное один раз: защита — это `Security()`-зависимость на роутере `/api/v1`,
   поэтому новый роутер нельзя случайно добавить незащищённым, а замок в OpenAPI FastAPI выводит из
   того же объекта, который проверяет ключ — расходиться нечему.
@@ -560,13 +607,13 @@ lookup в середину живого звонка.
   `.env.example` четырёх агентских сервисов, поэтому `cp .env.example .env` в каждом из пяти даёт
   сходящееся демо. Ключ общий: ротация означает ротацию во всех пяти сразу.
 
-Порядок middleware — `CORS → request_id → api_key → rate_limit`, поэтому отказ возвращается
+Порядок middleware — `CORS → request_id → rate_limit → routes`, поэтому отказ возвращается
 с CORS-заголовками и request id, а не как непрозрачная ошибка в браузере.
 
-Функция `_requires_api_key()` в `api/v1/middleware/api_key.py` — единственный источник правды:
-её применяет middleware, и из неё же генерируется OpenAPI, поэтому замок в Swagger не может
-разойтись с тем, что реально проверяет сервер. Отдельный тест дёргает каждый задокументированный
-эндпоинт без ключа и сверяет результат со схемой.
+Проверка ключа в этой цепочке не участвует: это `Security()`-зависимость роутера
+(`api/v1/dependencies/security.py`) — поэтому она срабатывает после лимитера и поэтому замок в
+Swagger выводится из того же объекта, который проверяет ключ, и разойтись с ним не может. Отдельный
+тест дёргает каждый задокументированный эндпоинт без ключа и сверяет результат со схемой.
 
 ### Почему ключ и на чтении
 
