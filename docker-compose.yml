@@ -16,7 +16,7 @@ services:
       # Exposed for psql / local tooling. Remove if you do not need it.
       - "5432:5432"
 
-  api:
+  ops-core-api:
     build: .
     env_file: .env
     environment:
