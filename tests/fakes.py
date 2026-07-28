@@ -1,7 +1,12 @@
-"""In-memory implementations of every port.
+"""In-memory implementations of every port, plus the container that holds them.
 
 These are the second implementation that justifies the interfaces: services are
 tested against them with no database, no network and no embedding provider.
+
+Test doubles live here rather than in `conftest.py` because a test module can
+import this file by name. `conftest.py` is loaded by pytest under its own module
+name, so importing it a second time would execute it twice and leave two copies
+of every class in memory.
 """
 
 import math
