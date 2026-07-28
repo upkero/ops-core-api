@@ -8,7 +8,10 @@ from src.app.contracts.enums import ResourceType
 from src.app.schemas.booking import BookingSlotResponse
 from src.app.schemas.pagination import Page
 
-router = APIRouter(prefix="/booking-slots", tags=["bookings"])
+# Its own tag rather than "bookings": availability and reservations are two
+# different questions, and sharing a tag merges them into one group in the
+# OpenAPI document.
+router = APIRouter(prefix="/booking-slots", tags=["booking-slots"])
 
 
 @router.get("", response_model=Page[BookingSlotResponse])
