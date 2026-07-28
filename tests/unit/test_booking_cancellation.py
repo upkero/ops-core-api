@@ -96,9 +96,13 @@ async def test_cancelling_an_unknown_booking_is_a_404(service: BookingService) -
     assert error.value.status_code == 404
 
 
-async def test_find_bookings_defaults_to_the_active_ones(service: BookingService, slot) -> None:  # type: ignore[no-untyped-def]
+async def test_find_bookings_defaults_to_the_active_ones(  # type: ignore[no-untyped-def]
+    service: BookingService,
+    bookings: FakeBookingRepository,
+    slot,
+) -> None:
     other = make_slot(capacity=2)
-    service._bookings.slots[other.id] = other  # noqa: SLF001
+    bookings.slots[other.id] = other
     keep = await service.create_booking(GUEST, slot.id, party_size=2)
     drop = await service.create_booking(GUEST, other.id, party_size=2)
     await service.cancel_booking(drop.id)

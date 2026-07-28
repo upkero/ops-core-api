@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import Iterable
+from collections.abc import Sequence
 
 from alembic import context
 from sqlalchemy import Connection, pool
@@ -57,4 +57,4 @@ else:
     asyncio.run(run_migrations_online())
 
 
-__all__: Iterable[str] = ()
+__all__: Sequence[str] = ()

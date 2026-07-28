@@ -26,8 +26,13 @@ def slot():  # type: ignore[no-untyped-def]
 
 
 @pytest.fixture
-def service(slot) -> BookingService:  # type: ignore[no-untyped-def]
-    return BookingService(FakeBookingRepository([slot]))
+def bookings(slot) -> FakeBookingRepository:  # type: ignore[no-untyped-def]
+    return FakeBookingRepository([slot])
+
+
+@pytest.fixture
+def service(bookings: FakeBookingRepository) -> BookingService:
+    return BookingService(bookings)
 
 
 async def test_retrying_with_the_same_key_returns_the_original_booking(service, slot) -> None:  # type: ignore[no-untyped-def]
@@ -37,11 +42,15 @@ async def test_retrying_with_the_same_key_returns_the_original_booking(service, 
     assert retry == first
 
 
-async def test_a_retry_does_not_create_a_second_booking(service, slot) -> None:  # type: ignore[no-untyped-def]
+async def test_a_retry_does_not_create_a_second_booking(  # type: ignore[no-untyped-def]
+    service: BookingService,
+    bookings: FakeBookingRepository,
+    slot,
+) -> None:
     await service.create_booking(GUEST, slot.id, 2, idempotency_key=KEY)
     await service.create_booking(GUEST, slot.id, 2, idempotency_key=KEY)
 
-    assert len(service._bookings.bookings) == 1  # noqa: SLF001
+    assert len(bookings.bookings) == 1
 
 
 async def test_without_a_key_a_repeat_is_still_a_conflict(service, slot) -> None:  # type: ignore[no-untyped-def]
@@ -66,13 +75,14 @@ async def test_a_different_caller_still_gets_a_conflict(service, slot) -> None: 
     [("party_size", 3), ("slot_id", "other"), ("guest_name", "Someone Else")],
 )
 async def test_reusing_a_key_with_different_parameters_is_rejected(  # type: ignore[no-untyped-def]
-    service,
+    service: BookingService,
+    bookings: FakeBookingRepository,
     slot,
     field: str,
     value: object,
 ) -> None:
     other_slot = make_slot(capacity=4)
-    service._bookings.slots[other_slot.id] = other_slot  # noqa: SLF001
+    bookings.slots[other_slot.id] = other_slot
     await service.create_booking(GUEST, slot.id, 2, idempotency_key=KEY)
 
     args: dict[str, object] = {"guest_name": GUEST, "slot_id": slot.id, "party_size": 2}
@@ -85,12 +95,16 @@ async def test_reusing_a_key_with_different_parameters_is_rejected(  # type: ign
     assert error.value.status_code == 409
 
 
-async def test_the_replay_check_runs_before_any_other_validation(service, slot) -> None:  # type: ignore[no-untyped-def]
+async def test_the_replay_check_runs_before_any_other_validation(  # type: ignore[no-untyped-def]
+    service: BookingService,
+    bookings: FakeBookingRepository,
+    slot,
+) -> None:
     # Once the slot is taken, the replay must still succeed — otherwise the
     # retry would fail on the very availability check it is meant to bypass.
     first = await service.create_booking(GUEST, slot.id, 2, idempotency_key=KEY)
 
-    assert service._bookings.slots[slot.id].is_available is False  # noqa: SLF001
+    assert bookings.slots[slot.id].is_available is False
     assert await service.create_booking(GUEST, slot.id, 2, idempotency_key=KEY) == first
 
 
@@ -111,7 +125,12 @@ class TestKeyAfterCancellation:
 
         assert error.value.status_code == 409
 
-    async def test_a_fresh_key_books_the_freed_slot(self, service: BookingService, slot) -> None:  # type: ignore[no-untyped-def]
+    async def test_a_fresh_key_books_the_freed_slot(  # type: ignore[no-untyped-def]
+        self,
+        service: BookingService,
+        bookings: FakeBookingRepository,
+        slot,
+    ) -> None:
         first = await service.create_booking(GUEST, slot.id, 2, idempotency_key=KEY)
         await service.cancel_booking(first.id)
 
@@ -119,9 +138,14 @@ class TestKeyAfterCancellation:
 
         assert second.id != first.id
         assert second.status is BookingStatus.ACTIVE
-        assert service._bookings.slots[slot.id].is_available is False  # noqa: SLF001
+        assert bookings.slots[slot.id].is_available is False
 
-    async def test_the_refusal_leaves_the_slot_bookable(self, service: BookingService, slot) -> None:  # type: ignore[no-untyped-def]
+    async def test_the_refusal_leaves_the_slot_bookable(  # type: ignore[no-untyped-def]
+        self,
+        service: BookingService,
+        bookings: FakeBookingRepository,
+        slot,
+    ) -> None:
         # The 409 must not consume the slot as a side effect.
         booking = await service.create_booking(GUEST, slot.id, 2, idempotency_key=KEY)
         await service.cancel_booking(booking.id)
@@ -129,4 +153,4 @@ class TestKeyAfterCancellation:
         with pytest.raises(IdempotencyKeyConsumedError):
             await service.create_booking(GUEST, slot.id, 2, idempotency_key=KEY)
 
-        assert service._bookings.slots[slot.id].is_available is True  # noqa: SLF001
+        assert bookings.slots[slot.id].is_available is True
