@@ -48,7 +48,9 @@ async def handle_app_exception(request: Request, exc: BaseAppException) -> JSONR
             exc.detail,
             exc_info=exc,
         )
-    return error_response_from_exception(exc)
+    # `or None` rather than the dict: an empty mapping would still be handed to
+    # JSONResponse, and only a 429 normally has anything to say (Retry-After).
+    return error_response_from_exception(exc, headers=exc.headers or None)
 
 
 async def handle_request_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
