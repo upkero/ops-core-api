@@ -95,10 +95,11 @@ async def test_semantic_search_needs_a_key(anonymous_client: AsyncClient, client
     assert (await client.post("/api/v1/documents/search", json=body)).status_code == 200
 
 
-@pytest.mark.parametrize("path", ["/health", "/openapi.json", "/docs"])
+@pytest.mark.parametrize("path", ["/health/live", "/health/ready", "/openapi.json", "/docs"])
 async def test_infrastructure_endpoints_stay_open(anonymous_client: AsyncClient, path: str) -> None:
-    # /health is polled by the container runtime; the schema endpoints have to
-    # load unauthenticated or Swagger UI cannot render at all.
+    # /health/* is polled by the container runtime and by the dependent
+    # services; the schema endpoints have to load unauthenticated or Swagger UI
+    # cannot render at all.
     assert (await anonymous_client.get(path)).status_code == 200
 
 
@@ -161,9 +162,11 @@ async def test_limits_are_counted_per_path(client: AsyncClient) -> None:
     assert (await client.get("/api/v1/pricing/services")).status_code == 200
 
 
-async def test_health_is_never_rate_limited(client: AsyncClient) -> None:
-    # The container runtime polls it; throttling would fail the healthcheck.
-    codes = [(await client.get("/health")).status_code for _ in range(12)]
+@pytest.mark.parametrize("path", ["/health/live", "/health/ready"])
+async def test_health_is_never_rate_limited(client: AsyncClient, path: str) -> None:
+    # The container runtime polls liveness and four services poll readiness;
+    # throttling either would report this API as down while it is serving.
+    codes = [(await client.get(path)).status_code for _ in range(12)]
 
     assert codes == [200] * 12
 
@@ -240,5 +243,6 @@ class TestOpenApiSecurity:
 
         assert unsecured == []
 
-    def test_health_is_not_marked_as_secured(self, app: FastAPI) -> None:
-        assert "security" not in app.openapi()["paths"]["/health"]["get"]
+    @pytest.mark.parametrize("path", ["/health/live", "/health/ready"])
+    def test_health_is_not_marked_as_secured(self, app: FastAPI, path: str) -> None:
+        assert "security" not in app.openapi()["paths"][path]["get"]

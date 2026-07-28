@@ -7,18 +7,30 @@ from tests.conftest import StubContainer
 from tests.fakes import FakeBookingRepository, FakeCustomerRepository, FakeEmbeddingClient
 
 
-async def test_health_reports_the_database_as_reachable(client: AsyncClient) -> None:
-    response = await client.get("/health")
+async def test_liveness_ignores_the_database(app: FastAPI) -> None:
+    # The container HEALTHCHECK polls this one, so a dead database must not
+    # make it fail — otherwise docker restarts a process that is working fine.
+    app.state.container = StubContainer(embedding_client=FakeEmbeddingClient(), database_healthy=False)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as unhealthy_client:
+        response = await unhealthy_client.get("/health/live")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+async def test_readiness_reports_the_database_as_reachable(client: AsyncClient) -> None:
+    response = await client.get("/health/ready")
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "database": "ok"}
 
 
-async def test_health_reports_a_degraded_database(app: FastAPI) -> None:
+async def test_readiness_reports_a_degraded_database(app: FastAPI) -> None:
     app.state.container = StubContainer(embedding_client=FakeEmbeddingClient(), database_healthy=False)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as unhealthy_client:
-        response = await unhealthy_client.get("/health")
+        response = await unhealthy_client.get("/health/ready")
 
     assert response.status_code == 503
     assert response.json() == {"status": "degraded", "database": "unavailable"}

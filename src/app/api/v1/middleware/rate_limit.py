@@ -43,8 +43,10 @@ EMBEDDING_ENDPOINT_LIMIT = f"{_settings.embedding_rate_limit_per_minute}/minute"
 _global_limit = parse(f"{_settings.rate_limit_per_minute}/minute")
 _global_limiter = FixedWindowRateLimiter(MemoryStorage())
 
-# Health checks are polled by the container runtime and must never be throttled.
-_EXEMPT_PATHS = frozenset({"/health"})
+# Health checks are polled by the container runtime and by the four agent
+# services that depend on this one, and must never be throttled: a 429 there
+# reads as "ops-core-api is down" and takes the caller out of service with it.
+_EXEMPT_PATHS = frozenset({"/health/live", "/health/ready"})
 
 
 def reset_global_rate_limit() -> None:

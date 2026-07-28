@@ -9,7 +9,8 @@ from src.app.api.v1.routers.pricing import router as pricing_router
 
 # Every endpoint under /api/v1 needs the key — declared once here rather than
 # repeated per route, so a new router cannot be added unprotected by accident.
-# /health stays open: it is mounted separately and the container runtime polls it.
+# /health/* stays open: it is mounted separately, and the container runtime and
+# the dependent services poll it.
 api_router = APIRouter(prefix="/api/v1", dependencies=[Depends(require_api_key)])
 
 api_router.include_router(customers_router)
