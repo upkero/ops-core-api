@@ -341,6 +341,10 @@ stemmer changes the vector space just as much as swapping providers does.
 
 All settings come from the environment; see [`.env.example`](.env.example) for the annotated list.
 
+`API_KEY` ships as the placeholder `change-me-min-16-chars`. The four agent services carry the same
+literal in their own `.env.example`, so copying each one to `.env` produces a demo where all five
+already agree; it is a shared secret, and rotating it means rotating it in all five at once.
+
 | Variable | Default | Purpose |
 |---|---|---|
 | `DB_URL` | — | Postgres async URL |
@@ -552,6 +556,9 @@ lookup в середину живого звонка.
 - **Rate limiting** — 60 запросов/минуту на IP и эндпоинт, 20/минуту для двух эндпоинтов,
   вызывающих провайдера эмбеддингов. Счётчики в памяти процесса.
 - **CORS** — origins из `CORS_ALLOWED_ORIGINS`, credentials выключены (ключ идёт заголовком, а не куки).
+- `API_KEY` в `.env.example` — плейсхолдер `change-me-min-16-chars`. Ровно тот же литерал лежит в
+  `.env.example` четырёх агентских сервисов, поэтому `cp .env.example .env` в каждом из пяти даёт
+  сходящееся демо. Ключ общий: ротация означает ротацию во всех пяти сразу.
 
 Порядок middleware — `CORS → request_id → api_key → rate_limit`, поэтому отказ возвращается
 с CORS-заголовками и request id, а не как непрозрачная ошибка в браузере.
