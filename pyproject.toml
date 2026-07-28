@@ -52,3 +52,7 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# The repository root on sys.path, so `from src.app...` resolves. Stated rather
+# than inherited: without `tests/__init__.py` pytest would otherwise decide the
+# import root by walking up from each test file.
+pythonpath = ["."]
