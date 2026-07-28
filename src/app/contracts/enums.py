@@ -15,10 +15,18 @@ class CustomerStatus(enum.StrEnum):
 
 
 class ResourceType(enum.StrEnum):
-    """Kind of bookable resource."""
+    """Kind of bookable resource.
+
+    The operator behind this API runs a restaurant, a wellness clinic and a set
+    of hireable meeting rooms, so `resource_type` is the parameter the agent
+    services differ by: the voice agent books tables, the sales agent sells
+    treatments. A clinic reserving a "table" was the tell that the demo data and
+    the schema had drifted apart.
+    """
 
     TABLE = "table"
     MEETING_ROOM = "meeting_room"
+    TREATMENT_ROOM = "treatment_room"
 
 
 class BookingStatus(enum.StrEnum):

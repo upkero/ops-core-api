@@ -1,4 +1,10 @@
-"""Demo content for a fictional wellness clinic.
+"""Demo content for a fictional multi-business operator.
+
+One company, three things to book: a restaurant (tables), a wellness clinic
+(treatment rooms) and a workshop space let by the hour (meeting rooms). That is
+what makes `resource_type` the parameter the agent services differ by rather
+than decoration — the voice agent books tables, the sales agent sells
+treatments, and both read this same database.
 
 Kept apart from the seeding logic so the prose can be edited without touching
 any code that talks to the database.
@@ -37,6 +43,12 @@ SLOT_TEMPLATE: tuple[tuple[ResourceType, int, int, int], ...] = (
     (ResourceType.MEETING_ROOM, 11, 0, 10),
     (ResourceType.MEETING_ROOM, 14, 0, 6),
     (ResourceType.MEETING_ROOM, 16, 30, 6),
+    # Capacity 1: a treatment room takes one client at a time, which is also
+    # what stops a party of four being offered a massage slot.
+    (ResourceType.TREATMENT_ROOM, 10, 0, 1),
+    (ResourceType.TREATMENT_ROOM, 12, 30, 1),
+    (ResourceType.TREATMENT_ROOM, 15, 0, 1),
+    (ResourceType.TREATMENT_ROOM, 17, 30, 1),
 )
 
 SLOT_DAYS = 7
