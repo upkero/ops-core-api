@@ -103,4 +103,10 @@ def test_settings_require_an_api_key_for_the_openai_provider() -> None:
 
 def test_settings_require_a_base_url_for_a_compatible_provider() -> None:
     with pytest.raises(ValueError, match="base_url is required"):
-        EmbeddingSettings(provider="openai_compatible")
+        EmbeddingSettings(_env_file=None, provider="openai_compatible")
+
+
+def test_local_provider_needs_no_key_or_url() -> None:
+    settings = EmbeddingSettings(_env_file=None, provider="local", model="BAAI/bge-m3")
+
+    assert settings.provider == "local"

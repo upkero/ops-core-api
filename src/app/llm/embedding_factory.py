@@ -5,6 +5,7 @@ from src.app.core.settings.embeddings import EmbeddingSettings
 from src.app.exceptions.embeddings import EmbeddingConfigurationError
 from src.app.interfaces.llm.embedding_client import EmbeddingClient
 from src.app.llm.hashing_embedding_client import HashingEmbeddingClient
+from src.app.llm.local_embedding_client import LocalEmbeddingClient
 from src.app.llm.openai_compatible_embedding_client import OpenAICompatibleEmbeddingClient
 
 
@@ -26,6 +27,9 @@ def create_embedding_client(settings: EmbeddingSettings) -> EmbeddingClient:
 
     if settings.provider == "hashing":
         return HashingEmbeddingClient(dimensions=settings.dimensions)
+
+    if settings.provider == "local":
+        return LocalEmbeddingClient(settings=settings)
 
     raw_client = AsyncOpenAI(
         api_key=settings.api_key.get_secret_value() if settings.api_key else None,

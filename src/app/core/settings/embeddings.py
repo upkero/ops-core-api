@@ -4,7 +4,7 @@ from typing import Literal
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-EmbeddingProvider = Literal["hashing", "openai", "openai_compatible"]
+EmbeddingProvider = Literal["hashing", "openai", "openai_compatible", "local"]
 
 
 class EmbeddingSettings(BaseSettings):
@@ -12,7 +12,8 @@ class EmbeddingSettings(BaseSettings):
         default="hashing",
         description=(
             "Embedding provider profile. 'hashing' is a deterministic local "
-            "implementation that needs no API key, so the stack runs offline."
+            "implementation that needs no API key, so the stack runs offline. 'local' runs "
+            "a sentence-transformers model (e.g. BAAI/bge-m3) inside this process."
         ),
     )
     model: str = Field(
