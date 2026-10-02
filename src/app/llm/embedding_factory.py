@@ -19,7 +19,7 @@ def create_embedding_client(settings: EmbeddingSettings) -> EmbeddingClient:
     """
     if settings.dimensions != EMBEDDING_DIMENSIONS:
         # Caught at startup rather than as an opaque database error on the
-        # first insert into a vector(1536) column.
+        # first insert into a vector(1024) column.
         raise EmbeddingConfigurationError(
             f"EMBEDDING_DIMENSIONS is {settings.dimensions}, but the schema stores "
             f"vector({EMBEDDING_DIMENSIONS}). Change both together with a migration."

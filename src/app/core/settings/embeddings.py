@@ -29,7 +29,7 @@ class EmbeddingSettings(BaseSettings):
         description="OpenAI-compatible API base URL. Required for provider='openai_compatible'.",
     )
     dimensions: int = Field(
-        default=1536,
+        default=1024,
         gt=0,
         description="Vector width. Must match the vector(N) column width in the database schema.",
     )

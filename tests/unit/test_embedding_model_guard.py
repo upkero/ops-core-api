@@ -74,7 +74,7 @@ async def test_search_still_works_when_the_model_is_unchanged(repository: FakeKn
 def test_the_local_embedder_versions_its_algorithm() -> None:
     # Changing the tokenizer or stemmer changes the vector space just as much
     # as swapping providers does, so the fingerprint carries a version.
-    client = HashingEmbeddingClient(dimensions=1536)
+    client = HashingEmbeddingClient(dimensions=1024)
 
     assert client.fingerprint == "hashing:v1"
 

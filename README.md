@@ -340,14 +340,14 @@ The local embedder matches on vocabulary, not meaning. It handles inflection ("c
 "cancelled") but not synonymy — a query for "help with my diet" will not find a passage about
 "nutrition coaching". Switch to a real provider when that matters; nothing outside `llm/` changes.
 
-`EMBEDDING_DIMENSIONS` must match the `vector(1536)` columns in the schema. A mismatch is rejected
+`EMBEDDING_DIMENSIONS` must match the `vector(1024)` columns in the schema. A mismatch is rejected
 at startup rather than surfacing as an opaque database error on first insert.
 
 ### Changing provider invalidates the index
 
 Vectors produced by two different models occupy different spaces. Cosine distance between them is
 still a computable number, so a provider switch does not fail — it quietly starts returning
-irrelevant results with normal-looking scores. Both models being 1536-dimensional means the
+irrelevant results with normal-looking scores. Both models having the same width means the
 dimension check above does not catch it either.
 
 Every chunk therefore records the model that embedded it (`provider:model`, e.g. `hashing:v1`), and
@@ -380,7 +380,7 @@ already agree; it is a shared secret, and rotating it means rotating it in all f
 | `DB_URL` | — | Postgres async URL |
 | `API_KEY` | — | **Required.** Shared secret for every `/api/v1` endpoint |
 | `EMBEDDING_PROVIDER` | `hashing` | Embedding implementation |
-| `EMBEDDING_DIMENSIONS` | `1536` | Vector width; must match the schema |
+| `EMBEDDING_DIMENSIONS` | `1024` | Vector width; must match the schema |
 | `RATE_LIMIT_PER_MINUTE` | `60` | Global per-IP, per-endpoint limit |
 | `EMBEDDING_RATE_LIMIT_PER_MINUTE` | `20` | Limit for embedding-backed endpoints |
 | `CORS_ALLOWED_ORIGINS` | `localhost:3000,localhost:5173` | Comma-separated browser origins |
@@ -646,7 +646,7 @@ n-граммы, с лёгким стеммингом и L2-нормализац�
 
 Векторы двух разных моделей лежат в разных пространствах. Косинусное расстояние между ними всё
 равно считается, поэтому смена провайдера **не падает** — она тихо начинает возвращать нерелевантные
-результаты с нормально выглядящими score. Обе модели 1536-мерные, так что проверка размерности этого
+результаты с нормально выглядящими score. Обе модели одной размерности, так что проверка размерности этого
 тоже не ловит.
 
 Поэтому каждый чанк хранит модель, которая его векторизовала (`провайдер:модель`, например

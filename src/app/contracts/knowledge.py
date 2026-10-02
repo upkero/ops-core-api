@@ -6,7 +6,7 @@ from uuid import UUID
 # Vector width of the knowledge base. Baked into the schema, so changing it
 # means writing a migration; the embedding provider must be configured to
 # return exactly this many dimensions.
-EMBEDDING_DIMENSIONS = 1536
+EMBEDDING_DIMENSIONS = 1024
 
 
 @dataclass(frozen=True, slots=True)
