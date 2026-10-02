@@ -17,7 +17,11 @@ services:
       - "5432:5432"
 
   ops-core-api:
-    build: .
+    build:
+      context: .
+      args:
+        # Set LOCAL_MODELS=true in .env to bake in sentence-transformers (EMBEDDING_PROVIDER=local).
+        LOCAL_MODELS: ${LOCAL_MODELS:-false}
     env_file: .env
     environment:
       # Overrides the host in .env: inside the compose network the database is
@@ -29,8 +33,11 @@ services:
         # migrations never race a database that is still starting up.
         condition: service_healthy
     command: ["./scripts/start.sh"]
+    volumes:
+      - hf_cache:/models  # downloaded model weights, kept across rebuilds
     ports:
       - "8000:8000"
 
 volumes:
   db_data:
+  hf_cache:
