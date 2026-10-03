@@ -14,7 +14,7 @@ services:
       retries: 10
     ports:
       # Exposed for psql / local tooling. Remove if you do not need it.
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
 
   ops-core-api:
     build:
