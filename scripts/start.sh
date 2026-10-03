@@ -5,8 +5,8 @@ set -eu
 echo "Applying database migrations..."
 alembic upgrade head
 
-# Idempotent: a no-op once the database already holds data, so restarting the
-# stack does not duplicate or reset anything.
+# Idempotent: once the database holds data only the missing slots (the rolling
+# window ahead) are topped up, so restarting never duplicates or resets anything.
 echo "Seeding demo data..."
 python -m src.app.cli.seed
 

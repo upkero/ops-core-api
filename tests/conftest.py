@@ -4,6 +4,8 @@ from collections.abc import AsyncGenerator, Iterator
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.app.api.v1.dependencies import (
     get_booking_service,
@@ -12,6 +14,7 @@ from src.app.api.v1.dependencies import (
     get_pricing_service,
 )
 from src.app.api.v1.middleware.rate_limit import limiter, reset_global_rate_limit
+from src.app.models import Base
 from src.app.services.booking import BookingService
 from src.app.services.customer import CustomerService
 from src.app.services.knowledge import KnowledgeService
@@ -39,6 +42,32 @@ os.environ["CORS_ALLOWED_ORIGINS"] = "http://localhost:3000"
 os.environ["EMBEDDING_PROVIDER"] = "hashing"
 os.environ.setdefault("DB_URL", "postgresql+asyncpg://unused:unused@localhost:1/unused")
 os.environ.setdefault("LOG_LEVEL", "WARNING")
+
+
+TEST_DB_URL = os.environ.get("TEST_DB_URL")
+
+
+@pytest.fixture
+async def session_factory() -> AsyncGenerator[async_sessionmaker[AsyncSession], None]:
+    """A freshly created schema in the Postgres behind TEST_DB_URL (pgvector required).
+
+    Tests that need real SQL ask for this; without TEST_DB_URL they are skipped.
+    """
+    if not TEST_DB_URL:
+        pytest.skip("TEST_DB_URL is not set; skipping database-backed tests.")
+    engine = create_async_engine(TEST_DB_URL)
+    async with engine.begin() as connection:
+        await connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        await connection.run_sync(Base.metadata.drop_all)
+        await connection.run_sync(Base.metadata.create_all)
+    yield async_sessionmaker(engine, expire_on_commit=False)
+    await engine.dispose()
+
+
+@pytest.fixture
+async def session(session_factory: async_sessionmaker[AsyncSession]) -> AsyncGenerator[AsyncSession, None]:
+    async with session_factory() as db_session, db_session.begin():
+        yield db_session
 
 
 @pytest.fixture(autouse=True)

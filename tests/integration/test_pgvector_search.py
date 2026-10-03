@@ -5,22 +5,18 @@ repository cannot prove any of them work. Skipped unless TEST_DB_URL points at
 a database; CI supplies one via a pgvector service container.
 """
 
-import os
-from collections.abc import AsyncGenerator
 from datetime import date, time
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.contracts.enums import ResourceType
 from src.app.contracts.knowledge import EMBEDDING_DIMENSIONS, NewChunk, NewDocument
 from src.app.contracts.pagination import PaginationParams
 from src.app.exceptions.domain import SlotUnavailableError
 from src.app.llm.hashing_embedding_client import HashingEmbeddingClient
-from src.app.models import Base
 from src.app.models.booking import BookingSlot
 from src.app.models.customer import Customer
 from src.app.models.pricing import PricingItem
@@ -30,30 +26,11 @@ from src.app.repositories.knowledge import SqlAlchemyKnowledgeRepository
 from src.app.repositories.pricing import SqlAlchemyPricingRepository
 from src.app.services.booking import BookingService
 
-TEST_DB_URL = os.environ.get("TEST_DB_URL")
-
-pytestmark = pytest.mark.skipif(not TEST_DB_URL, reason="TEST_DB_URL is not set; skipping database-backed tests.")
-
 CHUNKS = [
     "Appointments can be cancelled or rescheduled free of charge up to twenty-four hours before the start time.",
     "Parking is available in the underground garage beneath the building for two hours free of charge.",
     "Our deep tissue massage uses firm pressure to release chronic muscle tension in the back and shoulders.",
 ]
-
-
-@pytest.fixture
-async def session() -> AsyncGenerator[AsyncSession, None]:
-    engine = create_async_engine(str(TEST_DB_URL))
-    async with engine.begin() as connection:
-        await connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        await connection.run_sync(Base.metadata.drop_all)
-        await connection.run_sync(Base.metadata.create_all)
-
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    async with factory() as db_session, db_session.begin():
-        yield db_session
-
-    await engine.dispose()
 
 
 @pytest.fixture

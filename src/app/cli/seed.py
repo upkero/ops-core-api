@@ -9,15 +9,17 @@ has no business reaching into the application's service layer.
 
 import argparse
 import asyncio
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from logging import getLogger
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.bootstrap.container import ApplicationContainer
-from src.app.cli.seed_data import CUSTOMERS, DOCUMENTS, SERVICES, SLOT_DAYS, SLOT_START_OFFSET, SLOT_TEMPLATE
+from src.app.cli.seed_data import CUSTOMERS, DOCUMENTS, SERVICES, SLOT_TEMPLATE
 from src.app.core.logging import setup_logging
+from src.app.core.settings.app import get_app_settings
 from src.app.core.settings.logging import get_logging_settings
 from src.app.models.booking import Booking, BookingSlot
 from src.app.models.customer import Customer
@@ -53,19 +55,33 @@ def _customers() -> list[Customer]:
     ]
 
 
-def _slots() -> list[BookingSlot]:
-    first_day = (datetime.now(UTC) + SLOT_START_OFFSET).date()
-    return [
-        BookingSlot(
-            resource_type=resource_type,
-            slot_date=first_day + timedelta(days=day),
-            slot_time=time(hour, minute),
-            capacity=capacity,
-            is_available=True,
-        )
-        for day in range(SLOT_DAYS)
+async def ensure_slots(session: AsyncSession, *, today: date, days: int) -> int:
+    """Make sure every day from tomorrow through `today + days` has its slots.
+
+    Idempotent and additive: rows that already exist (booked or not) are left
+    alone, and only the missing ones are inserted. Running it on every start is
+    what keeps the window rolling forward instead of running dry a week after
+    the first seed. The unique constraint on (resource, date, time) is what
+    makes "no duplicates" a database guarantee rather than a hope.
+    """
+    rows = [
+        {
+            "resource_type": resource_type,
+            "slot_date": today + timedelta(days=day),
+            "slot_time": time(hour, minute),
+            "capacity": capacity,
+            "is_available": True,
+        }
+        for day in range(1, days + 1)
         for resource_type, hour, minute, capacity in SLOT_TEMPLATE
     ]
+    result = await session.execute(
+        insert(BookingSlot)
+        .values(rows)
+        .on_conflict_do_nothing(constraint="uq_booking_slot_resource_datetime")
+        .returning(BookingSlot.id)
+    )
+    return len(result.all())
 
 
 def _services() -> list[PricingItem]:
@@ -76,18 +92,24 @@ def _services() -> list[PricingItem]:
 
 
 async def seed(*, force: bool) -> None:
+    settings = get_app_settings()
+    today = datetime.now(settings.business_tz).date()
     container = ApplicationContainer()
     try:
         async with container.session_factory() as session, session.begin():
             if await _is_seeded(session):
                 if not force:
-                    logger.info("Database already contains data; nothing to do. Use --force to reseed.")
+                    # The rest of the demo data is a one-off, but the slot window
+                    # has to keep moving: this runs on every start.
+                    added = await ensure_slots(session, today=today, days=settings.slot_window_days)
+                    logger.info("Database already contains data; added %d missing slots.", added)
                     return
                 logger.info("Clearing existing data before reseeding.")
                 await _clear(session)
 
-            session.add_all([*_customers(), *_slots(), *_services()])
+            session.add_all([*_customers(), *_services()])
             await session.flush()
+            slot_total = await ensure_slots(session, today=today, days=settings.slot_window_days)
 
             # Documents go through the service so they are chunked and embedded
             # exactly the way the API would do it.
@@ -100,7 +122,7 @@ async def seed(*, force: bool) -> None:
             logger.info(
                 "Seeded %d customers, %d slots, %d services, %d documents (%d chunks).",
                 len(CUSTOMERS),
-                SLOT_DAYS * len(SLOT_TEMPLATE),
+                slot_total,
                 len(SERVICES),
                 len(DOCUMENTS),
                 chunk_total,

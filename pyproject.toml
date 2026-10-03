@@ -18,6 +18,7 @@ dependencies = [
     "pgvector>=0.3.6",
     "slowapi>=0.1.9",
     "limits>=5.0.0",
+    "tzdata>=2026.5",
 ]
 
 [dependency-groups]

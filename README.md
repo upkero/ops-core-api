@@ -72,7 +72,8 @@ docker compose up --build
 ```
 
 That brings up Postgres with pgvector and the API on <http://localhost:8000>, applies migrations,
-and loads demo data (6 customers, a week of slots, 5 priced services, 5 knowledge documents).
+and loads demo data (6 customers, two weeks of slots that roll forward on every start, 5 priced
+services, 5 knowledge documents).
 Interactive docs: <http://localhost:8000/docs>.
 
 **No API keys are needed.** `EMBEDDING_PROVIDER` defaults to `hashing`, a deterministic local
@@ -116,8 +117,9 @@ curl localhost:8000/health/ready
 # Find a customer
 curl "localhost:8000/api/v1/customers?search=anna" -H "X-API-Key: $API_KEY"
 
-# Free slots for a given day, one page at a time
-curl "localhost:8000/api/v1/booking-slots?date=2026-07-24&resource_type=treatment_room&limit=10&offset=0" \
+# Free slots for a given day, one page at a time (slots exist from tomorrow on)
+TOMORROW=$(date -d tomorrow +%F)   # macOS: date -v+1d +%F
+curl "localhost:8000/api/v1/booking-slots?date=$TOMORROW&resource_type=treatment_room&limit=10&offset=0" \
   -H "X-API-Key: $API_KEY"
 
 # Price six sessions — the volume discount is applied by the service layer
@@ -384,6 +386,8 @@ already agree; it is a shared secret, and rotating it means rotating it in all f
 | `EMBEDDING_DIMENSIONS` | `1024` | Vector width; must match the schema |
 | `RATE_LIMIT_PER_MINUTE` | `60` | Global per-IP, per-endpoint limit |
 | `EMBEDDING_RATE_LIMIT_PER_MINUTE` | `20` | Limit for embedding-backed endpoints |
+| `SLOT_WINDOW_DAYS` | `14` | Days ahead (from tomorrow) that booking slots are kept on offer; topped up on every start |
+| `BUSINESS_TIMEZONE` | `Europe/Moscow` | Zone the slots' wall-clock `slot_date`/`slot_time` are in |
 | `CORS_ALLOWED_ORIGINS` | `localhost:3000,localhost:5173` | Comma-separated browser origins |
 | `LOG_LEVEL` / `LOG_FORMAT` | `INFO` / `json` | Structured logging |
 
@@ -482,7 +486,7 @@ docker compose up --build
 ```
 
 Поднимутся Postgres с pgvector и API на <http://localhost:8000>, применятся миграции и загрузятся
-демо-данные (6 клиентов, слоты на неделю вперёд, 5 услуг, 5 документов). Swagger — на `/docs`.
+демо-данные (6 клиентов, слоты на две недели вперёд (окно сдвигается при каждом старте), 5 услуг, 5 документов). Swagger — на `/docs`.
 
 **API-ключи не нужны:** `EMBEDDING_PROVIDER` по умолчанию `hashing` — детерминированный локальный
 эмбеддер, поэтому семантический поиск работает офлайн сразу после запуска.

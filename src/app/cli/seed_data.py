@@ -10,7 +10,6 @@ Kept apart from the seeding logic so the prose can be edited without touching
 any code that talks to the database.
 """
 
-from datetime import timedelta
 from decimal import Decimal
 
 from src.app.contracts.enums import CustomerStatus, ResourceType
@@ -33,7 +32,8 @@ SERVICES: tuple[tuple[str, Decimal, str], ...] = (
     ("Meeting Room Hire", Decimal("60.00"), "Per hour hire of the workshop room, seats ten, screen included."),
 )
 
-# (resource type, time of day, capacity) repeated for each of the next seven days.
+# (resource type, hour, minute, capacity), repeated for every day of the slot window
+# (SLOT_WINDOW_DAYS in the settings).
 SLOT_TEMPLATE: tuple[tuple[ResourceType, int, int, int], ...] = (
     (ResourceType.TABLE, 12, 0, 2),
     (ResourceType.TABLE, 13, 30, 4),
@@ -50,9 +50,6 @@ SLOT_TEMPLATE: tuple[tuple[ResourceType, int, int, int], ...] = (
     (ResourceType.TREATMENT_ROOM, 15, 0, 1),
     (ResourceType.TREATMENT_ROOM, 17, 30, 1),
 )
-
-SLOT_DAYS = 7
-SLOT_START_OFFSET = timedelta(days=1)
 
 DOCUMENTS: tuple[tuple[str, str], ...] = (
     (
