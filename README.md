@@ -334,9 +334,10 @@ by editing one variable instead of the infrastructure.
 |---|---|
 | `hashing` (default) | Deterministic local embeddings — hashed word and character n-gram features with light stemming, L2-normalised. No key, no network, reproducible tests. |
 | `openai` | The OpenAI embeddings API. Requires `EMBEDDING_API_KEY`. |
-| `openai_compatible` | Any OpenAI-compatible server (Ollama, vLLM, …). Requires `EMBEDDING_BASE_URL`. |
+| `openai_compatible` | Any OpenAI-compatible server (Ollama, vLLM, OpenRouter, …). Requires `EMBEDDING_BASE_URL`; document and query text are sent to that server. |
+| `local` | sentence-transformers in this process (e.g. `BAAI/bge-m3`, 1024 dims). Needs `LOCAL_MODELS=true` as an image build arg; weights download on first start into the `hf_cache` volume. |
 
-The local embedder matches on vocabulary, not meaning. It handles inflection ("cancel" finds
+The hashing embedder matches on vocabulary, not meaning. It handles inflection ("cancel" finds
 "cancelled") but not synonymy — a query for "help with my diet" will not find a passage about
 "nutrition coaching". Switch to a real provider when that matters; nothing outside `llm/` changes.
 
@@ -364,7 +365,7 @@ re-indexing and you get a loud error instead of silent nonsense:
 }
 ```
 
-The local embedder's fingerprint carries a version (`hashing:v1`) because changing its tokenizer or
+The hashing embedder's fingerprint carries a version (`hashing:v1`) because changing its tokenizer or
 stemmer changes the vector space just as much as swapping providers does.
 
 ## Configuration
@@ -424,7 +425,7 @@ uv run python -m src.app.cli.seed     # seed demo data (idempotent; --force to r
 
 - Rate-limit counters live in process memory, so they reset on restart and would need Redis behind
   more than one worker.
-- A single shared write key, not per-user auth — the right weight for a public read-only demo.
+- A single shared write key, not per-user auth — the right weight for a demo (reads need the key too, see above).
 - Offset-based paging. Fine at this size; a cursor would be the answer for a large, rapidly
   changing collection, where an insert can shift rows between pages.
 
