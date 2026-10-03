@@ -76,6 +76,10 @@ and loads demo data (6 customers, two weeks of slots that roll forward on every 
 services, 5 knowledge documents).
 Interactive docs: <http://localhost:8000/docs>.
 
+The Postgres password comes only from `.env` (`POSTGRES_PASSWORD`; `docker compose` refuses to start
+without it) and the port is published on `127.0.0.1` only. `.env.example` carries a placeholder, so
+set your own before the database is reachable from anywhere but your machine.
+
 **No API keys are needed.** `EMBEDDING_PROVIDER` defaults to `hashing`, a deterministic local
 embedder, so semantic search works offline out of the box. See
 [Embeddings](#embeddings) for switching to a real provider.

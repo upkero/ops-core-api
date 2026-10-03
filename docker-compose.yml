@@ -4,7 +4,8 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-ops_core}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      # No default on purpose: a password that ships in the repo is not a password. Set it in .env.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (copy .env.example)}
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
@@ -26,7 +27,7 @@ services:
     environment:
       # Overrides the host in .env: inside the compose network the database is
       # reachable as "db", not localhost.
-      DB_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-ops_core}
+      DB_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (copy .env.example)}@db:5432/${POSTGRES_DB:-ops_core}
     depends_on:
       db:
         # Waits for the healthcheck, not just for the container to exist, so
