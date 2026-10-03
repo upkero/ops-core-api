@@ -404,7 +404,7 @@ already agree; it is a shared secret, and rotating it means rotating it in all f
 | `EMBEDDING_RATE_LIMIT_PER_MINUTE` | `20` | Limit for embedding-backed endpoints |
 | `SLOT_WINDOW_DAYS` | `14` | Days ahead (from tomorrow) that booking slots are kept on offer; topped up on every start |
 | `BUSINESS_TIMEZONE` | `Europe/Moscow` | Zone the slots' wall-clock `slot_date`/`slot_time` are in |
-| `CORS_ALLOWED_ORIGINS` | `localhost:3000,localhost:5173` | Comma-separated browser origins |
+| `CORS_ALLOWED_ORIGINS` | empty | Comma-separated browser origins; `.env.example` allows `localhost:3000` and `localhost:5173` |
 | `LOG_LEVEL` / `LOG_FORMAT` | `INFO` / `json` | Structured logging |
 
 ## Development

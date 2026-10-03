@@ -46,8 +46,8 @@ class AppSettings(BaseSettings):
     # does for any complex type before validators run. Without it a plain
     # "a,b" env value fails at parse time and split_comma_separated never sees it.
     cors_allowed_origins: Annotated[list[str], NoDecode] = Field(
-        default=["http://localhost:3000", "http://localhost:5173"],
-        description="Allowed CORS origins, comma-separated in the environment. Restrict in production.",
+        default=[],
+        description="Allowed browser origins, comma-separated in the environment. Empty: no browser client is allowed.",
     )
 
     model_config = SettingsConfigDict(
