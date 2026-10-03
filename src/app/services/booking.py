@@ -14,7 +14,7 @@ from src.app.exceptions.domain import (
     SlotInPastError,
     SlotUnavailableError,
 )
-from src.app.interfaces.repositories.booking_repository import BookingRepository
+from src.app.interfaces.repositories.booking_repository import BookingRepository, IdempotencyKeyTakenError
 
 
 class BookingService:
@@ -98,25 +98,20 @@ class BookingService:
         # retries; without this the retry hits "slot taken" and the caller
         # cannot tell its own successful booking from someone else's.
         if idempotency_key is not None:
-            replayed = await self._bookings.get_by_idempotency_key(idempotency_key)
+            replayed = await self._replay(idempotency_key, name, slot_id, party_size)
             if replayed is not None:
-                if (replayed.guest_name, replayed.slot_id, replayed.party_size) != (
-                    name,
-                    slot_id,
-                    party_size,
-                ):
-                    raise IdempotencyKeyReusedError()
-                # Only an active booking may be replayed. Handing back a
-                # cancelled one would answer "booked" with a reservation that
-                # no longer exists, leaving the slot free and the caller
-                # believing they have a table.
-                if replayed.status is BookingStatus.CANCELLED:
-                    raise IdempotencyKeyConsumedError()
                 return replayed
 
         # Locking first is what makes the checks below trustworthy: a competing
         # request for the same slot blocks here and then sees is_available=False.
         slot = await self._bookings.lock_slot(slot_id)
+        # A retry fired while the first request was still in flight passed the check above
+        # (nothing was stored yet), then waited for the lock. The first request has committed
+        # by now, so look again: the answer is its booking, not "slot taken".
+        if idempotency_key is not None:
+            replayed = await self._replay(idempotency_key, name, slot_id, party_size)
+            if replayed is not None:
+                return replayed
         if slot is None:
             raise EntityNotFoundError(f"Booking slot '{slot_id}' was not found.")
         if datetime.combine(slot.slot_date, slot.slot_time) <= self._local_now():
@@ -128,6 +123,30 @@ class BookingService:
                 f"Party of {party_size} exceeds the slot capacity of {slot.capacity}."
             )
 
-        booking = await self._bookings.create_booking(name, slot_id, party_size, idempotency_key)
+        try:
+            booking = await self._bookings.create_booking(name, slot_id, party_size, idempotency_key)
+        except IdempotencyKeyTakenError:
+            # The same key on a different slot, sent at the same moment: the other request
+            # holds the key and this one waited on the unique index. Same answer as a retry.
+            if idempotency_key is None:
+                raise
+            replayed = await self._replay(idempotency_key, name, slot_id, party_size)
+            if replayed is None:
+                raise
+            return replayed
         await self._bookings.mark_slot_taken(slot_id)
         return booking
+
+    async def _replay(self, idempotency_key: str, name: str, slot_id: UUID, party_size: int) -> BookingDTO | None:
+        """The booking this key already made, if any; refuses a key that cannot be replayed."""
+        replayed = await self._bookings.get_by_idempotency_key(idempotency_key)
+        if replayed is None:
+            return None
+        if (replayed.guest_name, replayed.slot_id, replayed.party_size) != (name, slot_id, party_size):
+            raise IdempotencyKeyReusedError()
+        # Only an active booking may be replayed. Handing back a cancelled one would
+        # answer "booked" with a reservation that no longer exists, leaving the slot
+        # free and the caller believing they have a table.
+        if replayed.status is BookingStatus.CANCELLED:
+            raise IdempotencyKeyConsumedError()
+        return replayed

@@ -7,6 +7,14 @@ from src.app.contracts.enums import BookingStatus, ResourceType
 from src.app.contracts.pagination import PageDTO, PaginationParams
 
 
+class IdempotencyKeyTakenError(Exception):
+    """A booking with this idempotency key was stored by a concurrent request.
+
+    Raised by `create_booking` when the unique index on the key refuses the insert. The
+    service answers it with a replay lookup, the same way it answers a sequential retry.
+    """
+
+
 class BookingRepository(ABC):
     """Slots and bookings share one port: they are written together in a single
     transaction, so splitting them would only invite half-applied changes."""
@@ -41,7 +49,8 @@ class BookingRepository(ABC):
         slot_id: UUID,
         party_size: int,
         idempotency_key: str | None = None,
-    ) -> BookingDTO: ...
+    ) -> BookingDTO:
+        """Store a booking. Raises `IdempotencyKeyTakenError` if the key is already used."""
 
     @abstractmethod
     async def mark_slot_taken(self, slot_id: UUID) -> None: ...

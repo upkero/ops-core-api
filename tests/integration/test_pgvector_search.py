@@ -9,13 +9,13 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 
 import pytest
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.contracts.enums import ResourceType
 from src.app.contracts.knowledge import EMBEDDING_DIMENSIONS, NewChunk, NewDocument
 from src.app.contracts.pagination import PaginationParams
 from src.app.exceptions.domain import SlotUnavailableError
+from src.app.interfaces.repositories.booking_repository import IdempotencyKeyTakenError
 from src.app.llm.hashing_embedding_client import HashingEmbeddingClient
 from src.app.models.booking import BookingSlot
 from src.app.models.customer import Customer
@@ -172,7 +172,7 @@ async def test_the_idempotency_key_is_unique_in_the_database(session: AsyncSessi
     bookings = SqlAlchemyBookingRepository(session)
 
     await bookings.create_booking("Dmitri Volkov", slots[0].id, 2, idempotency_key="same-key")
-    with pytest.raises(IntegrityError):
+    with pytest.raises(IdempotencyKeyTakenError):
         await bookings.create_booking("Dmitri Volkov", slots[1].id, 2, idempotency_key="same-key")
 
 

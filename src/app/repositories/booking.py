@@ -2,12 +2,13 @@ from datetime import UTC, date, datetime
 from uuid import UUID
 
 from sqlalchemy import and_, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.contracts.booking import BookingDTO, BookingSlotDTO
 from src.app.contracts.enums import BookingStatus, ResourceType
 from src.app.contracts.pagination import PageDTO, PaginationParams
-from src.app.interfaces.repositories.booking_repository import BookingRepository
+from src.app.interfaces.repositories.booking_repository import BookingRepository, IdempotencyKeyTakenError
 from src.app.models.booking import Booking, BookingSlot
 from src.app.repositories.pagination import paginate
 
@@ -88,10 +89,20 @@ class SqlAlchemyBookingRepository(BookingRepository):
             party_size=party_size,
             idempotency_key=idempotency_key,
         )
-        self._session.add(booking)
-        # Flush, not commit: the request-scoped transaction owns the commit.
-        # This populates server-side defaults so the DTO is complete.
-        await self._session.flush()
+        try:
+            # A savepoint, so that a refused insert leaves the request's transaction usable:
+            # the caller still has to look the winning booking up.
+            async with self._session.begin_nested():
+                self._session.add(booking)
+                # Flush, not commit: the request-scoped transaction owns the commit.
+                # This populates server-side defaults so the DTO is complete.
+                await self._session.flush()
+        except IntegrityError as error:
+            # Another request inserted the same key first (this insert waited for it to commit).
+            # Anything else that violates a constraint is a bug and stays an error.
+            if idempotency_key is not None and await self.get_by_idempotency_key(idempotency_key) is not None:
+                raise IdempotencyKeyTakenError(idempotency_key) from error
+            raise
         await self._session.refresh(booking)
         return _booking_to_dto(booking)
 
