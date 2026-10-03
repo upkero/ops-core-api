@@ -9,6 +9,7 @@ has no business reaching into the application's service layer.
 
 import argparse
 import asyncio
+from collections.abc import Callable
 from datetime import UTC, date, datetime, time, timedelta
 from logging import getLogger
 
@@ -21,6 +22,7 @@ from src.app.cli.seed_data import CUSTOMERS, DOCUMENTS, SERVICES, SLOT_TEMPLATE
 from src.app.core.logging import setup_logging
 from src.app.core.settings.app import get_app_settings
 from src.app.core.settings.logging import get_logging_settings
+from src.app.interfaces.llm.embedding_client import EmbeddingClient
 from src.app.models.booking import Booking, BookingSlot
 from src.app.models.customer import Customer
 from src.app.models.knowledge import DocumentChunk, KnowledgeDocument
@@ -84,6 +86,18 @@ async def ensure_slots(session: AsyncSession, *, today: date, days: int) -> int:
     return len(result.all())
 
 
+async def reindex_unindexed_documents(session: AsyncSession, embedding_client: Callable[[], EmbeddingClient]) -> int:
+    """Re-embed documents left without chunks (migration 0007 empties them).
+
+    The client is only built when there is something to do, so a normal restart
+    does not pay for it (a local model takes seconds to load).
+    """
+    repository = SqlAlchemyKnowledgeRepository(session)
+    if not await repository.list_unindexed_documents():
+        return 0
+    return await KnowledgeService(repository, embedding_client()).reindex_unindexed_documents()
+
+
 def _services() -> list[PricingItem]:
     return [
         PricingItem(service_name=name, unit_price=price, description=description)
@@ -102,7 +116,12 @@ async def seed(*, force: bool) -> None:
                     # The rest of the demo data is a one-off, but the slot window
                     # has to keep moving: this runs on every start.
                     added = await ensure_slots(session, today=today, days=settings.slot_window_days)
-                    logger.info("Database already contains data; added %d missing slots.", added)
+                    reindexed = await reindex_unindexed_documents(session, lambda: container.embedding_client)
+                    logger.info(
+                        "Database already contains data; added %d missing slots, re-indexed %d documents.",
+                        added,
+                        reindexed,
+                    )
                     return
                 logger.info("Clearing existing data before reseeding.")
                 await _clear(session)

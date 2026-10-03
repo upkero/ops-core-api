@@ -31,25 +31,44 @@ class KnowledgeService:
         self._chunk_overlap = chunk_overlap
 
     async def add_document(self, title: str, content: str) -> DocumentDTO:
-        chunks = chunk_text(content, max_chars=self._max_chunk_chars, overlap=self._chunk_overlap)
-        if not chunks:
+        embedding, chunks = await self._embed(content)
+        document = NewDocument(
+            title=title,
+            content=content,
+            embedding=embedding,
+            chunks=chunks,
+            embedding_model=self._embedding_client.fingerprint,
+        )
+        return await self._repository.add_document(document)
+
+    async def reindex_unindexed_documents(self) -> int:
+        """Chunk and embed every stored document that has no chunks; returns how many.
+
+        A migration that changes the vector width has to drop the stored
+        vectors, which leaves the documents in place but unsearchable. Running
+        this at startup puts them back without anyone having to remember to.
+        """
+        pending = await self._repository.list_unindexed_documents()
+        for document in pending:
+            embedding, chunks = await self._embed(document.content)
+            await self._repository.index_document(
+                document.id, embedding, chunks, self._embedding_client.fingerprint
+            )
+        return len(pending)
+
+    async def _embed(self, content: str) -> tuple[Sequence[float] | None, list[NewChunk]]:
+        pieces = chunk_text(content, max_chars=self._max_chunk_chars, overlap=self._chunk_overlap)
+        if not pieces:
             raise EmbeddingInputError("Document content produced no chunks to embed.")
 
         # One batched provider call for the whole document rather than one per
         # chunk: fewer round trips, and the provider bills per token either way.
-        vectors = await self._embedding_client.embed_batch(chunks)
-
-        document = NewDocument(
-            title=title,
-            content=content,
-            embedding=self._mean_vector(vectors),
-            chunks=[
-                NewChunk(chunk_index=index, chunk_text=chunk, embedding=vector)
-                for index, (chunk, vector) in enumerate(zip(chunks, vectors, strict=True))
-            ],
-            embedding_model=self._embedding_client.fingerprint,
-        )
-        return await self._repository.add_document(document)
+        vectors = await self._embedding_client.embed_batch(pieces)
+        chunks = [
+            NewChunk(chunk_index=index, chunk_text=piece, embedding=vector)
+            for index, (piece, vector) in enumerate(zip(pieces, vectors, strict=True))
+        ]
+        return self._mean_vector(vectors), chunks
 
     async def search(self, query: str, top_k: int) -> Sequence[ChunkMatchDTO]:
         if not query.strip():

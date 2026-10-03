@@ -20,7 +20,7 @@ from uuid import UUID, uuid4
 from src.app.contracts.booking import BookingDTO, BookingSlotDTO
 from src.app.contracts.customer import CustomerDTO
 from src.app.contracts.enums import BookingStatus, CustomerStatus, ResourceType
-from src.app.contracts.knowledge import ChunkMatchDTO, DocumentDTO, NewDocument
+from src.app.contracts.knowledge import ChunkMatchDTO, DocumentDTO, NewChunk, NewDocument
 from src.app.contracts.pagination import PageDTO, PaginationParams
 from src.app.contracts.pricing import PricingItemDTO
 from src.app.interfaces.llm.embedding_client import EmbeddingClient
@@ -205,6 +205,33 @@ class FakeKnowledgeRepository(KnowledgeRepository):
     def __init__(self) -> None:
         self.documents: list[NewDocument] = []
         self.chunks: list[_StoredChunk] = []
+        self.unindexed: list[DocumentDTO] = []
+
+    async def list_unindexed_documents(self) -> Sequence[DocumentDTO]:
+        return list(self.unindexed)
+
+    async def index_document(
+        self,
+        document_id: UUID,
+        embedding: Sequence[float] | None,
+        chunks: Sequence[NewChunk],
+        embedding_model: str,
+    ) -> DocumentDTO:
+        document = next(d for d in self.unindexed if d.id == document_id)
+        self.unindexed.remove(document)
+        self.chunks.extend(
+            _StoredChunk(
+                chunk_id=uuid4(),
+                document_id=document_id,
+                document_title=document.title,
+                chunk_index=chunk.chunk_index,
+                chunk_text=chunk.chunk_text,
+                embedding=chunk.embedding,
+                embedding_model=embedding_model,
+            )
+            for chunk in chunks
+        )
+        return replace(document, chunk_count=len(chunks))
 
     async def list_embedding_models(self) -> Sequence[str]:
         return sorted({chunk.embedding_model for chunk in self.chunks})

@@ -381,6 +381,10 @@ re-indexing and you get a loud error instead of silent nonsense:
 The hashing embedder's fingerprint carries a version (`hashing:v1`) because changing its tokenizer or
 stemmer changes the vector space just as much as swapping providers does.
 
+**Upgrading an existing database.** Migration `0007` resized the vectors to 1024 and therefore dropped
+every stored chunk. The documents stay, and on the next start the seed step re-embeds every document
+that has no chunks, so `docker compose up --build` is enough; there is nothing to run by hand.
+
 ## Configuration
 
 All settings come from the environment; see [`.env.example`](.env.example) for the annotated list.
@@ -680,6 +684,10 @@ n-граммы, с лёгким стеммингом и L2-нормализац�
 
 В отпечатке локального эмбеддера есть версия (`hashing:v1`), потому что смена токенизатора или
 стеммера меняет пространство векторов ровно так же, как смена провайдера.
+
+**Обновление существующей базы.** Миграция `0007` изменила размерность векторов до 1024 и поэтому
+удалила все чанки. Документы остаются, а при следующем старте шаг seed заново векторизует каждый
+документ без чанков — достаточно `docker compose up --build`, руками ничего запускать не нужно.
 
 ## Разработка
 

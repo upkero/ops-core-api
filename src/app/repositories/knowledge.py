@@ -1,11 +1,18 @@
 from collections.abc import Sequence
+from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.app.contracts.knowledge import ChunkMatchDTO, DocumentDTO, NewDocument
+from src.app.contracts.knowledge import ChunkMatchDTO, DocumentDTO, NewChunk, NewDocument
 from src.app.interfaces.repositories.knowledge_repository import KnowledgeRepository
 from src.app.models.knowledge import DocumentChunk, KnowledgeDocument
+
+
+def _document_to_dto(row: KnowledgeDocument, chunk_count: int) -> DocumentDTO:
+    return DocumentDTO(
+        id=row.id, title=row.title, content=row.content, chunk_count=chunk_count, created_at=row.created_at
+    )
 
 
 class SqlAlchemyKnowledgeRepository(KnowledgeRepository):
@@ -43,6 +50,42 @@ class SqlAlchemyKnowledgeRepository(KnowledgeRepository):
             chunk_count=len(document.chunks),
             created_at=row.created_at,
         )
+
+    async def list_unindexed_documents(self) -> Sequence[DocumentDTO]:
+        stmt = (
+            select(KnowledgeDocument)
+            .outerjoin(DocumentChunk, DocumentChunk.document_id == KnowledgeDocument.id)
+            .group_by(KnowledgeDocument.id)
+            .having(func.count(DocumentChunk.id) == 0)
+            .order_by(KnowledgeDocument.created_at, KnowledgeDocument.id)
+        )
+        return [_document_to_dto(row, 0) for row in await self._session.scalars(stmt)]
+
+    async def index_document(
+        self,
+        document_id: UUID,
+        embedding: Sequence[float] | None,
+        chunks: Sequence[NewChunk],
+        embedding_model: str,
+    ) -> DocumentDTO:
+        row = await self._session.get(KnowledgeDocument, document_id)
+        if row is None:
+            raise LookupError(f"Document {document_id} disappeared while it was being re-indexed.")
+        row.embedding = list(embedding) if embedding is not None else None
+        self._session.add_all(
+            [
+                DocumentChunk(
+                    document_id=document_id,
+                    chunk_text=chunk.chunk_text,
+                    embedding=list(chunk.embedding),
+                    chunk_index=chunk.chunk_index,
+                    embedding_model=embedding_model,
+                )
+                for chunk in chunks
+            ]
+        )
+        await self._session.flush()
+        return _document_to_dto(row, len(chunks))
 
     async def list_embedding_models(self) -> Sequence[str]:
         result = await self._session.scalars(select(DocumentChunk.embedding_model).distinct())
