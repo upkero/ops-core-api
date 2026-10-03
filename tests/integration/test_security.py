@@ -202,6 +202,18 @@ async def test_cors_preflight_is_allowed_for_a_known_origin(client: AsyncClient)
     assert "x-api-key" in response.headers["access-control-allow-headers"].lower()
 
 
+async def test_cors_preflight_allows_cancelling_a_booking(client: AsyncClient) -> None:
+    # DELETE /bookings/{id} is part of the API, so a browser client must be able to call it.
+    response = await client.request(
+        "OPTIONS",
+        f"/api/v1/bookings/{uuid4()}",
+        headers={"Origin": ORIGIN, "Access-Control-Request-Method": "DELETE"},
+    )
+
+    assert response.status_code == 200
+    assert "DELETE" in response.headers["access-control-allow-methods"]
+
+
 async def test_cors_preflight_is_refused_for_an_unknown_origin(client: AsyncClient) -> None:
     response = await client.request(
         "OPTIONS",
