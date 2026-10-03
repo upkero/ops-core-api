@@ -42,6 +42,7 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 python_version = "3.12"
 strict = true
 explicit_package_bases = true
+mypy_path = "."
 # Teaches mypy that pydantic models synthesise their __init__, so settings
 # classes with required fields are not reported as missing arguments.
 plugins = ["pydantic.mypy"]
