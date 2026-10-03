@@ -5,7 +5,7 @@ repository cannot prove any of them work. Skipped unless TEST_DB_URL points at
 a database; CI supplies one via a pgvector service container.
 """
 
-from datetime import date, time
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 
 import pytest
@@ -25,6 +25,7 @@ from src.app.repositories.customer import SqlAlchemyCustomerRepository
 from src.app.repositories.knowledge import SqlAlchemyKnowledgeRepository
 from src.app.repositories.pricing import SqlAlchemyPricingRepository
 from src.app.services.booking import BookingService
+from tests.fakes import FUTURE_DAY
 
 CHUNKS = [
     "Appointments can be cancelled or rescheduled free of charge up to twenty-four hours before the start time.",
@@ -138,7 +139,7 @@ async def test_search_excludes_chunks_from_another_model(
 async def test_booking_marks_the_slot_taken_in_the_database(session: AsyncSession) -> None:
     slot = BookingSlot(
         resource_type=ResourceType.TABLE,
-        slot_date=date(2026, 8, 1),
+        slot_date=FUTURE_DAY,
         slot_time=time(19, 0),
         capacity=4,
     )
@@ -160,7 +161,7 @@ async def test_the_idempotency_key_is_unique_in_the_database(session: AsyncSessi
     slots = [
         BookingSlot(
             resource_type=ResourceType.TABLE,
-            slot_date=date(2026, 8, 2),
+            slot_date=FUTURE_DAY + timedelta(days=1),
             slot_time=time(19, index),
             capacity=4,
         )
@@ -183,7 +184,7 @@ async def test_pagination_counts_the_filtered_set_in_sql(session: AsyncSession) 
         [
             BookingSlot(
                 resource_type=ResourceType.TABLE if index % 2 else ResourceType.MEETING_ROOM,
-                slot_date=date(2026, 8, 1),
+                slot_date=FUTURE_DAY,
                 slot_time=time(9 + index, 0),
                 capacity=4,
             )
@@ -194,12 +195,12 @@ async def test_pagination_counts_the_filtered_set_in_sql(session: AsyncSession) 
     repository = SqlAlchemyBookingRepository(session)
 
     page = await repository.list_available_slots(
-        date(2026, 8, 1),
+        FUTURE_DAY,
         ResourceType.TABLE,
         PaginationParams(limit=2, offset=0),
     )
     last = await repository.list_available_slots(
-        date(2026, 8, 1),
+        FUTURE_DAY,
         ResourceType.TABLE,
         PaginationParams(limit=2, offset=4),
     )
@@ -230,3 +231,32 @@ async def test_pricing_lookup_is_case_insensitive(session: AsyncSession) -> None
 
     assert found is not None
     assert found.unit_price == Decimal("120.00")
+
+
+async def test_past_slots_are_filtered_in_sql(session: AsyncSession) -> None:
+    now = datetime(2026, 10, 4, 15, 0)
+    session.add_all(
+        [
+            BookingSlot(
+                resource_type=ResourceType.TABLE, slot_date=slot_date, slot_time=slot_time, capacity=4
+            )
+            for slot_date, slot_time in [
+                (date(2026, 10, 3), time(23, 0)),  # yesterday
+                (date(2026, 10, 4), time(12, 0)),  # earlier today
+                (date(2026, 10, 4), time(15, 0)),  # exactly now
+                (date(2026, 10, 4), time(19, 30)),  # later today
+                (date(2026, 10, 5), time(9, 0)),  # tomorrow
+            ]
+        ]
+    )
+    await session.flush()
+
+    page = await SqlAlchemyBookingRepository(session).list_available_slots(
+        None, None, PaginationParams(limit=10), not_before=now
+    )
+
+    assert [(slot.slot_date, slot.slot_time) for slot in page.items] == [
+        (date(2026, 10, 4), time(19, 30)),
+        (date(2026, 10, 5), time(9, 0)),
+    ]
+    assert page.total == 2

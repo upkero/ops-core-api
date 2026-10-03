@@ -13,7 +13,7 @@ import math
 import zlib
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -28,6 +28,9 @@ from src.app.interfaces.repositories.booking_repository import BookingRepository
 from src.app.interfaces.repositories.customer_repository import CustomerRepository
 from src.app.interfaces.repositories.knowledge_repository import KnowledgeRepository
 from src.app.interfaces.repositories.pricing_repository import PricingRepository
+
+# Far enough ahead that a slot made with the defaults is never in the past, whatever day the suite runs.
+FUTURE_DAY = date.today() + timedelta(days=30)
 
 
 def make_customer(name: str = "Anna Petrova", **overrides: object) -> CustomerDTO:
@@ -45,8 +48,8 @@ def make_slot(**overrides: object) -> BookingSlotDTO:
     base = BookingSlotDTO(
         id=uuid4(),
         resource_type=ResourceType.TABLE,
-        slot_date=date(2026, 8, 1),
-        slot_time=datetime(2026, 8, 1, 19, 0, tzinfo=UTC).time(),
+        slot_date=FUTURE_DAY,
+        slot_time=time(19, 0),
         capacity=4,
         is_available=True,
     )
@@ -95,11 +98,13 @@ class FakeBookingRepository(BookingRepository):
         slot_date: date | None,
         resource_type: ResourceType | None,
         params: PaginationParams,
+        not_before: datetime | None = None,
     ) -> PageDTO[BookingSlotDTO]:
         found = [
             slot
             for slot in self.slots.values()
             if slot.is_available
+            and (not_before is None or datetime.combine(slot.slot_date, slot.slot_time) > not_before)
             and (slot_date is None or slot.slot_date == slot_date)
             and (resource_type is None or slot.resource_type == resource_type)
         ]

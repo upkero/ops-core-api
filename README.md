@@ -248,6 +248,13 @@ slot may be booked, cancelled and booked again. Uniqueness is a *partial* index 
 `UNIQUE (slot_id) WHERE status = 'active'` — so the no-double-booking guarantee survives while the
 history stays.
 
+### Slots in the past
+
+A slot that has already started is neither listed by `GET /booking-slots` nor bookable: `POST
+/bookings` answers `409 slot_in_past`. `slot_date` and `slot_time` have no zone — they are the
+wall clock of the business — so "already started" is judged against the current time in
+`BUSINESS_TIMEZONE` (default `Europe/Moscow`).
+
 ### Retrying a booking
 
 `POST /bookings` accepts an optional `Idempotency-Key` header. Repeat a request with the same key
@@ -562,6 +569,13 @@ lookup в середину живого звонка.
 можно забронировать, отменить и забронировать снова. Уникальность стала частичным индексом —
 `UNIQUE (slot_id) WHERE status = 'active'` — так что гарантия «без двойных броней» сохраняется, а
 история остаётся.
+
+### Слоты в прошлом
+
+Слот, который уже начался, не отдаётся в `GET /booking-slots` и не бронируется: `POST /bookings`
+отвечает `409 slot_in_past`. У `slot_date` и `slot_time` нет часового пояса — это настенные часы
+бизнеса, — поэтому «уже начался» считается по текущему времени в `BUSINESS_TIMEZONE` (по умолчанию
+`Europe/Moscow`).
 
 ### Повтор брони
 

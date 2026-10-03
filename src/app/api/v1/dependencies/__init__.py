@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.bootstrap.container import ApplicationContainer
 from src.app.contracts.pagination import DEFAULT_LIMIT, MAX_LIMIT, PaginationParams
+from src.app.core.settings.app import get_app_settings
 from src.app.repositories.booking import SqlAlchemyBookingRepository
 from src.app.repositories.customer import SqlAlchemyCustomerRepository
 from src.app.repositories.knowledge import SqlAlchemyKnowledgeRepository
@@ -52,7 +53,7 @@ def get_customer_service(session: DBSessionDep) -> CustomerService:
 
 
 def get_booking_service(session: DBSessionDep) -> BookingService:
-    return BookingService(SqlAlchemyBookingRepository(session))
+    return BookingService(SqlAlchemyBookingRepository(session), business_tz=get_app_settings().business_tz)
 
 
 def get_pricing_service(session: DBSessionDep, container: ContainerDep) -> PricingService:

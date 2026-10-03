@@ -1,3 +1,5 @@
+from dataclasses import replace
+from datetime import date, timedelta
 from uuid import UUID, uuid4
 
 import pytest
@@ -6,7 +8,7 @@ from httpx import ASGITransport, AsyncClient
 
 from src.app.bootstrap.container import ApplicationContainer
 from tests.conftest import StubContainer
-from tests.fakes import FakeBookingRepository, FakeCustomerRepository, FakeEmbeddingClient
+from tests.fakes import FUTURE_DAY, FakeBookingRepository, FakeCustomerRepository, FakeEmbeddingClient
 
 
 async def test_liveness_ignores_the_database(app: FastAPI) -> None:
@@ -81,7 +83,7 @@ async def test_get_customer_rejects_a_malformed_id(client: AsyncClient) -> None:
 async def test_list_booking_slots_filters_by_date_and_resource(client: AsyncClient) -> None:
     response = await client.get(
         "/api/v1/booking-slots",
-        params={"date": "2026-08-01", "resource_type": "table"},
+        params={"date": FUTURE_DAY.isoformat(), "resource_type": "table"},
     )
 
     assert response.status_code == 200
@@ -276,3 +278,20 @@ async def test_a_misconfiguration_fails_the_boot_not_the_first_request(
     with pytest.raises(RuntimeError, match="misconfigured"):
         async with app.router.lifespan_context(app):
             pass
+
+
+async def test_booking_a_slot_in_the_past_returns_409_slot_in_past(
+    client: AsyncClient,
+    slots: FakeBookingRepository,
+) -> None:
+    slot = next(iter(slots.slots.values()))
+    slots.slots[slot.id] = replace(slot, slot_date=date.today() - timedelta(days=1))
+
+    response = await client.post(
+        "/api/v1/bookings",
+        json={"guest_name": "Dmitri Volkov", "slot_id": str(slot.id), "party_size": 2},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error_code"] == "slot_in_past"
+    assert (await client.get("/api/v1/booking-slots")).json()["total"] == len(slots.slots) - 1

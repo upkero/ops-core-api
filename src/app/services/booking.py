@@ -1,4 +1,5 @@
-from datetime import date
+from collections.abc import Callable
+from datetime import UTC, date, datetime, tzinfo
 from uuid import UUID
 
 from src.app.contracts.booking import BookingDTO, BookingSlotDTO
@@ -10,6 +11,7 @@ from src.app.exceptions.domain import (
     IdempotencyKeyReusedError,
     InvalidInputError,
     SlotCapacityExceededError,
+    SlotInPastError,
     SlotUnavailableError,
 )
 from src.app.interfaces.repositories.booking_repository import BookingRepository
@@ -22,11 +24,25 @@ class BookingService:
     the seeding command, a future agent service — gets the same guarantees.
     """
 
-    def __init__(self, bookings: BookingRepository) -> None:
+    def __init__(
+        self,
+        bookings: BookingRepository,
+        *,
+        business_tz: tzinfo = UTC,
+        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+    ) -> None:
         # One dependency: a booking is a slot and a name. Resolving a CRM
         # account is a different flow's job, so this service never needs to
         # reach for one.
         self._bookings = bookings
+        # Slots are stored as a bare date and time: the wall clock of the business,
+        # not an instant. "Has it started" therefore compares against the current
+        # time in the business's zone, which the clock is converted into here.
+        self._business_tz = business_tz
+        self._clock = clock
+
+    def _local_now(self) -> datetime:
+        return self._clock().astimezone(self._business_tz).replace(tzinfo=None)
 
     async def find_bookings(
         self,
@@ -63,7 +79,9 @@ class BookingService:
         resource_type: ResourceType | None,
         params: PaginationParams,
     ) -> PageDTO[BookingSlotDTO]:
-        return await self._bookings.list_available_slots(slot_date, resource_type, params)
+        return await self._bookings.list_available_slots(
+            slot_date, resource_type, params, not_before=self._local_now()
+        )
 
     async def create_booking(
         self,
@@ -101,6 +119,8 @@ class BookingService:
         slot = await self._bookings.lock_slot(slot_id)
         if slot is None:
             raise EntityNotFoundError(f"Booking slot '{slot_id}' was not found.")
+        if datetime.combine(slot.slot_date, slot.slot_time) <= self._local_now():
+            raise SlotInPastError(f"Booking slot '{slot_id}' has already started.")
         if not slot.is_available:
             raise SlotUnavailableError(f"Booking slot '{slot_id}' is already taken.")
         if party_size > slot.capacity:

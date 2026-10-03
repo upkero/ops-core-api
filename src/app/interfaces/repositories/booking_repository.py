@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from datetime import date
+from datetime import date, datetime
 from uuid import UUID
 
 from src.app.contracts.booking import BookingDTO, BookingSlotDTO
@@ -17,7 +17,10 @@ class BookingRepository(ABC):
         slot_date: date | None,
         resource_type: ResourceType | None,
         params: PaginationParams,
-    ) -> PageDTO[BookingSlotDTO]: ...
+        not_before: datetime | None = None,
+    ) -> PageDTO[BookingSlotDTO]:
+        """Free slots, soonest first. `not_before` is a naive wall-clock time: slots that
+        start at or before it are left out, since they can no longer be booked."""
 
     @abstractmethod
     async def lock_slot(self, slot_id: UUID) -> BookingSlotDTO | None:

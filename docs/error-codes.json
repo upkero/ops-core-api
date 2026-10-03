@@ -64,6 +64,11 @@
     "status_code": 409,
     "default_detail": "Party size exceeds the capacity of this slot."
   },
+  "slot_in_past": {
+    "exception": "SlotInPastError",
+    "status_code": 409,
+    "default_detail": "Booking slot has already started."
+  },
   "slot_unavailable": {
     "exception": "SlotUnavailableError",
     "status_code": 409,

@@ -29,6 +29,14 @@ class SlotUnavailableError(BaseAppException):
     default_detail = "Booking slot is no longer available."
 
 
+class SlotInPastError(BaseAppException):
+    """Raised when a booking targets a slot whose start time has already passed."""
+
+    status_code = 409
+    error_code = "slot_in_past"
+    default_detail = "Booking slot has already started."
+
+
 class IdempotencyKeyConsumedError(BaseAppException):
     """Raised when a retry token is replayed after its booking was cancelled.
 

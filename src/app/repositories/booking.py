@@ -1,7 +1,7 @@
 from datetime import UTC, date, datetime
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.contracts.booking import BookingDTO, BookingSlotDTO
@@ -44,8 +44,16 @@ class SqlAlchemyBookingRepository(BookingRepository):
         slot_date: date | None,
         resource_type: ResourceType | None,
         params: PaginationParams,
+        not_before: datetime | None = None,
     ) -> PageDTO[BookingSlotDTO]:
         stmt = select(BookingSlot).where(BookingSlot.is_available.is_(True))
+        if not_before is not None:
+            stmt = stmt.where(
+                or_(
+                    BookingSlot.slot_date > not_before.date(),
+                    and_(BookingSlot.slot_date == not_before.date(), BookingSlot.slot_time > not_before.time()),
+                )
+            )
         if slot_date is not None:
             stmt = stmt.where(BookingSlot.slot_date == slot_date)
         if resource_type is not None:
