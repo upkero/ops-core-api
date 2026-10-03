@@ -224,3 +224,31 @@ async def test_an_inbound_request_id_is_propagated(client: AsyncClient) -> None:
     response = await client.get("/api/v1/customers", headers={"X-Request-ID": "trace-me-123"})
 
     assert response.headers["X-Request-ID"] == "trace-me-123"
+
+
+async def test_a_form_body_is_a_validation_error_not_a_crash(client: AsyncClient) -> None:
+    # curl's default content type when -H 'Content-Type: application/json' is
+    # forgotten. Pydantic keeps the raw bytes in the error, undecodable ones too.
+    for body in (b"name=x", b"\xff\xfe"):
+        response = await client.post(
+            "/api/v1/customers",
+            content=body,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+
+        assert response.status_code == 422
+        assert response.json()["error_code"] == "request_validation_error"
+
+
+async def test_an_unhandled_error_is_a_500_that_still_carries_the_request_id(app: FastAPI) -> None:
+    async def boom() -> None:
+        raise RuntimeError("boom")
+
+    app.add_api_route("/boom", boom)
+    transport = ASGITransport(app=app, raise_app_exceptions=False)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as raw_client:
+        response = await raw_client.get("/boom", headers={"X-Request-ID": "trace-me-123"})
+
+    assert response.status_code == 500
+    assert response.json()["error_code"] == "internal_server_error"
+    assert response.headers["X-Request-ID"] == "trace-me-123"
