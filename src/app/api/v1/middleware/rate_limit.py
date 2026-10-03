@@ -1,3 +1,4 @@
+import re
 import time
 from collections.abc import Awaitable, Callable
 from logging import getLogger
@@ -56,6 +57,33 @@ _global_limiter = FixedWindowRateLimiter(MemoryStorage())
 _EXEMPT_PATHS = frozenset({"/health/live", "/health/ready"})
 
 
+# Every path that matches no route shares this one counter, so junk URLs can neither
+# dodge the limit nor make the counters grow without bound.
+_UNMATCHED = "<unmatched>"
+
+
+def _route_matchers(app: FastAPI) -> list[tuple[re.Pattern[str], str]]:
+    """(regex, template) for every documented route, e.g. `/api/v1/bookings/{booking_id}`.
+
+    Built from the OpenAPI document rather than from `app.routes`: the routing
+    objects are private to FastAPI and nested, while the document is the public,
+    flattened list of the same templates. Fewest parameters first, so a literal
+    segment (`/pricing/services`) wins over a parameterised sibling.
+    """
+    templates = sorted(app.openapi()["paths"], key=lambda template: template.count("{"))
+    return [
+        (
+            re.compile(
+                "".join(
+                    "[^/]+" if part.startswith("{") else re.escape(part) for part in re.split(r"(\{[^}]+\})", template)
+                )
+            ),
+            template,
+        )
+        for template in templates
+    ]
+
+
 def reset_global_rate_limit() -> None:
     """Drop all counters. Used by tests to keep cases independent."""
     _global_limiter.storage.reset()
@@ -78,6 +106,13 @@ def register_rate_limiting(app: FastAPI) -> None:
     # Settings are read here, at application build time, rather than at module
     # import: importing this module must not depend on a configured environment.
     limit = parse(global_limit())
+    matchers: list[tuple[re.Pattern[str], str]] = []
+
+    def route_template(path: str) -> str:
+        # Built on first use: the routers are included after this function runs.
+        if not matchers:
+            matchers.extend(_route_matchers(app))
+        return next((template for pattern, template in matchers if pattern.fullmatch(path)), _UNMATCHED)
 
     @app.middleware("http")
     async def global_rate_limit_middleware(
@@ -89,18 +124,20 @@ def register_rate_limiting(app: FastAPI) -> None:
             return await call_next(request)
 
         identifier = get_remote_address(request)
-        # Counted per path so that hammering one endpoint cannot lock a client
-        # out of the whole API.
-        if not _global_limiter.hit(limit, identifier, path):
+        # Counted per route template, not per concrete path: hammering one endpoint
+        # must not lock a client out of the whole API, and /bookings/{id} must not
+        # get a fresh allowance for every id.
+        scope = route_template(path)
+        if not _global_limiter.hit(limit, identifier, scope):
             logger.warning("Rate limit exceeded for %s on %s %s", identifier, request.method, path)
-            headers = _rate_limit_headers(limit, identifier, path)
+            headers = _rate_limit_headers(limit, identifier, scope)
             return error_response_from_exception(
                 RateLimitExceededError(f"Rate limit exceeded: {limit}."),
                 headers=headers,
             )
 
         response = await call_next(request)
-        response.headers.update(_rate_limit_headers(limit, identifier, path))
+        response.headers.update(_rate_limit_headers(limit, identifier, scope))
         return response
 
 

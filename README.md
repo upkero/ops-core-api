@@ -309,7 +309,8 @@ behind the classes, so a renamed code cannot quietly reach an agent that maps it
 - One rule, declared once: the guard is a `Security()` dependency on the `/api/v1` router, so a new
   router cannot be added unprotected by accident, and FastAPI derives the OpenAPI padlock from the
   same object that enforces it — there is no hand-written schema to drift.
-- **Rate limiting** — 60 requests/minute per IP per endpoint, and 20/minute for the two endpoints
+- **Rate limiting** — 60 requests/minute per IP per route (`/bookings/{id}` is one route, whatever the
+  id), and 20/minute for the two endpoints
   that call the embedding provider. In-memory, so counters are per process; the container runs a
   single worker.
 - **CORS** — origins from `CORS_ALLOWED_ORIGINS`, credentials disabled (the key travels in a
@@ -399,7 +400,7 @@ already agree; it is a shared secret, and rotating it means rotating it in all f
 | `API_KEY` | — | **Required.** Shared secret for every `/api/v1` endpoint |
 | `EMBEDDING_PROVIDER` | `hashing` | Embedding implementation |
 | `EMBEDDING_DIMENSIONS` | `1024` | Vector width; must match the schema |
-| `RATE_LIMIT_PER_MINUTE` | `60` | Global per-IP, per-endpoint limit |
+| `RATE_LIMIT_PER_MINUTE` | `60` | Global per-IP, per-route limit |
 | `EMBEDDING_RATE_LIMIT_PER_MINUTE` | `20` | Limit for embedding-backed endpoints |
 | `SLOT_WINDOW_DAYS` | `14` | Days ahead (from tomorrow) that booking slots are kept on offer; topped up on every start |
 | `BUSINESS_TIMEZONE` | `Europe/Moscow` | Zone the slots' wall-clock `slot_date`/`slot_time` are in |
@@ -444,6 +445,9 @@ uv run python -m src.app.cli.seed     # seed demo data (idempotent; --force to r
 
 - Rate-limit counters live in process memory, so they reset on restart and would need Redis behind
   more than one worker.
+- Rate limits are keyed on the caller's IP. Behind one Docker network or proxy every consumer (the
+  agent services, the site bridge) arrives from the same address and shares one allowance per route,
+  including the 20/minute embedding budget. Limit each consumer on its own side.
 - A single shared write key, not per-user auth — the right weight for a demo (reads need the key too, see above).
 - Offset-based paging. Fine at this size; a cursor would be the answer for a large, rapidly
   changing collection, where an insert can shift rows between pages.
@@ -627,7 +631,7 @@ lookup в середину живого звонка.
 - Одно правило, объявленное один раз: защита — это `Security()`-зависимость на роутере `/api/v1`,
   поэтому новый роутер нельзя случайно добавить незащищённым, а замок в OpenAPI FastAPI выводит из
   того же объекта, который проверяет ключ — расходиться нечему.
-- **Rate limiting** — 60 запросов/минуту на IP и эндпоинт, 20/минуту для двух эндпоинтов,
+- **Rate limiting** — 60 запросов/минуту на IP и маршрут (`/bookings/{id}` — один маршрут при любом id), 20/минуту для двух эндпоинтов,
   вызывающих провайдера эмбеддингов. Счётчики в памяти процесса.
 - **CORS** — origins из `CORS_ALLOWED_ORIGINS`, credentials выключены (ключ идёт заголовком, а не куки).
 - `API_KEY` в `.env.example` — плейсхолдер `change-me-min-16-chars`. Ровно тот же литерал лежит в
@@ -706,6 +710,9 @@ Postgres (запрос `<=>`, блокировка `FOR UPDATE`, экранир�
 ## Известные ограничения
 
 - Счётчики лимитов в памяти процесса: сбрасываются при рестарте, для нескольких воркеров нужен Redis.
+- Лимиты считаются по IP вызывающего. За одной docker-сетью или прокси все потребители (агентские
+  сервисы, мост сайта) приходят с одного адреса и делят один лимит на маршрут, в том числе бюджет
+  20/минуту на эмбеддинги. Ограничивать каждого потребителя нужно на его стороне.
 - Один общий ключ на запись, а не полноценная авторизация пользователей.
 - Пагинация по offset. На таких объёмах это правильный выбор; для большой и часто меняющейся
   коллекции понадобился бы курсор — при вставке строки сдвигаются между страницами.

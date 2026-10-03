@@ -5,6 +5,8 @@ how the layers compose — an early rejection still has to travel back out
 through request-id and CORS.
 """
 
+from uuid import uuid4
+
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
@@ -246,3 +248,21 @@ class TestOpenApiSecurity:
     @pytest.mark.parametrize("path", ["/health/live", "/health/ready"])
     def test_health_is_not_marked_as_secured(self, app: FastAPI, path: str) -> None:
         assert "security" not in app.openapi()["paths"][path]["get"]
+
+
+async def test_ids_in_the_path_share_one_counter(client: AsyncClient) -> None:
+    # /bookings/{id} is one endpoint, however many ids it is called with. Counted per
+    # concrete path, every id would start with a fresh allowance and nothing would cap it.
+    codes = [(await client.delete(f"/api/v1/bookings/{uuid4()}")).status_code for _ in range(6)]
+
+    assert codes[:5] == [404] * 5
+    assert codes[5] == 429
+
+
+async def test_unknown_paths_share_one_counter(client: AsyncClient) -> None:
+    codes = [(await client.get(f"/api/v1/nope-{index}")).status_code for index in range(6)]
+
+    assert codes[5] == 429
+    # ...without touching the allowance of the real endpoints.
+    assert (await client.get("/api/v1/customers")).status_code == 200
+
