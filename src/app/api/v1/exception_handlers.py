@@ -14,6 +14,21 @@ from src.app.exceptions.base import BaseAppException
 logger = getLogger(__name__)
 
 
+# A 422 echoes the offending input back, which is a courtesy for a short value and an
+# amplifier for a 100 kB one.
+_MAX_ECHOED_INPUT_CHARS = 200
+
+
+def _shorten(value: Any) -> Any:
+    if isinstance(value, str) and len(value) > _MAX_ECHOED_INPUT_CHARS:
+        return f"{value[:_MAX_ECHOED_INPUT_CHARS]}... ({len(value)} characters)"
+    if isinstance(value, dict):
+        return {key: _shorten(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_shorten(item) for item in value]
+    return value
+
+
 def _error_response(
     status: int,
     detail: Any,
@@ -73,6 +88,9 @@ async def handle_request_validation_error(request: Request, exc: RequestValidati
         exc.errors(),
         custom_encoder={bytes: lambda raw: raw.decode(errors="replace"), Exception: str},
     )
+    for error in errors:
+        if "input" in error:
+            error["input"] = _shorten(error["input"])
     return _error_response(422, errors, "request_validation_error")
 
 

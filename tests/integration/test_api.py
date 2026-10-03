@@ -244,6 +244,21 @@ async def test_a_form_body_is_a_validation_error_not_a_crash(client: AsyncClient
         assert response.json()["error_code"] == "request_validation_error"
 
 
+async def test_a_validation_error_does_not_echo_an_oversized_input(client: AsyncClient) -> None:
+    response = await client.post("/api/v1/customers", json={"name": "Anna", "notes": "n" * 100_001})
+
+    assert response.status_code == 422
+    assert len(response.content) < 2_000
+    echoed = response.json()["detail"][0]["input"]
+    assert echoed.startswith("nnn") and echoed.endswith("(100001 characters)")
+
+
+async def test_a_short_invalid_input_is_still_echoed(client: AsyncClient) -> None:
+    response = await client.get("/api/v1/customers", params={"limit": "lots"})
+
+    assert response.json()["detail"][0]["input"] == "lots"
+
+
 async def test_an_unhandled_error_is_a_500_that_still_carries_the_request_id(app: FastAPI) -> None:
     async def boom() -> None:
         raise RuntimeError("boom")
