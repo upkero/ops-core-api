@@ -89,14 +89,17 @@ def reset_global_rate_limit() -> None:
     _global_limiter.storage.reset()
 
 
-def _rate_limit_headers(limit: RateLimitItem, identifier: str, scope: str) -> dict[str, str]:
+def _rate_limit_headers(limit: RateLimitItem, identifier: str, scope: str, *, rejected: bool) -> dict[str, str]:
     stats = _global_limiter.get_window_stats(limit, identifier, scope)
-    return {
-        "Retry-After": str(max(0, int(stats.reset_time - time.time()))),
+    headers = {
         "X-RateLimit-Limit": str(limit.amount),
         "X-RateLimit-Remaining": str(stats.remaining),
         "X-RateLimit-Reset": str(int(stats.reset_time)),
     }
+    if rejected:
+        # Only a 429 tells the client to wait; on a success it would read as a back-off request.
+        headers["Retry-After"] = str(max(0, int(stats.reset_time - time.time())))
+    return headers
 
 
 def register_rate_limiting(app: FastAPI) -> None:
@@ -130,14 +133,19 @@ def register_rate_limiting(app: FastAPI) -> None:
         scope = route_template(path)
         if not _global_limiter.hit(limit, identifier, scope):
             logger.warning("Rate limit exceeded for %s on %s %s", identifier, request.method, path)
-            headers = _rate_limit_headers(limit, identifier, scope)
+            headers = _rate_limit_headers(limit, identifier, scope, rejected=True)
             return error_response_from_exception(
                 RateLimitExceededError(f"Rate limit exceeded: {limit}."),
                 headers=headers,
             )
 
         response = await call_next(request)
-        response.headers.update(_rate_limit_headers(limit, identifier, scope))
+        # The embedding endpoints are also capped by their own, tighter slowapi limit, which has
+        # already put its figures on the response. Those are the ones the client must pace itself on.
+        for name, value in _rate_limit_headers(limit, identifier, scope, rejected=False).items():
+            response.headers.setdefault(name, value)
+        if response.status_code != 429:
+            del response.headers["Retry-After"]
         return response
 
 

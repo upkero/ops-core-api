@@ -266,3 +266,30 @@ async def test_unknown_paths_share_one_counter(client: AsyncClient) -> None:
     # ...without touching the allowance of the real endpoints.
     assert (await client.get("/api/v1/customers")).status_code == 200
 
+
+
+async def test_retry_after_is_sent_only_on_a_429(client: AsyncClient) -> None:
+    ok = await client.get("/api/v1/customers")
+    embedding_ok = await client.post("/api/v1/documents/search", json={"query": "parking"})
+
+    assert ok.status_code == embedding_ok.status_code == 200
+    assert "Retry-After" not in ok.headers
+    assert "Retry-After" not in embedding_ok.headers
+
+
+async def test_embedding_endpoints_advertise_their_own_limit(client: AsyncClient) -> None:
+    # conftest: 3/minute on the embedding endpoints, 5/minute globally.
+    first = await client.post("/api/v1/documents/search", json={"query": "parking"})
+    second = await client.post("/api/v1/documents/search", json={"query": "parking"})
+
+    assert first.headers["X-RateLimit-Limit"] == second.headers["X-RateLimit-Limit"] == "3"
+    assert (first.headers["X-RateLimit-Remaining"], second.headers["X-RateLimit-Remaining"]) == ("2", "1")
+
+
+async def test_a_rejected_embedding_call_reports_the_embedding_limit(client: AsyncClient) -> None:
+    for _ in range(4):
+        response = await client.post("/api/v1/documents/search", json={"query": "parking"})
+
+    assert response.status_code == 429
+    assert response.headers["X-RateLimit-Limit"] == "3"
+    assert int(response.headers["Retry-After"]) >= 0
