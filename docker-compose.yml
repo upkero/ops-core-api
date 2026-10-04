@@ -39,7 +39,12 @@ services:
     volumes:
       - hf_cache:/models  # downloaded model weights, kept across rebuilds
     ports:
-      - "8000:8000"
+      # Loopback only: /docs and /health need no key, and on Linux a port Docker
+      # publishes on 0.0.0.0 bypasses ufw. The sibling services' compose files
+      # reach it through host.docker.internal, which on Docker Desktop includes
+      # loopback ports but on plain Linux does not: there, run them all on one
+      # network (service name ops-core-api) instead of publishing this port wider.
+      - "127.0.0.1:8000:8000"
 
 volumes:
   db_data:
