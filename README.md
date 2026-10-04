@@ -108,7 +108,7 @@ included. Only the health probes and the schema endpoints answer without it.
 ### Examples
 
 ```bash
-API_KEY=$(grep '^API_KEY=' .env | cut -d'"' -f2)
+SECURITY_API_KEY=$(grep '^SECURITY_API_KEY=' .env | cut -d'"' -f2)
 
 # Is the process up (what the container HEALTHCHECK polls)
 curl localhost:8000/health/live
@@ -119,43 +119,43 @@ curl localhost:8000/health/ready
 # {"status":"ok","database":"ok"}
 
 # Find a customer
-curl "localhost:8000/api/v1/customers?search=anna" -H "X-API-Key: $API_KEY"
+curl "localhost:8000/api/v1/customers?search=anna" -H "X-API-Key: $SECURITY_API_KEY"
 
 # Free slots for a given day, one page at a time (slots exist from tomorrow on)
 TOMORROW=$(date -d tomorrow +%F)   # macOS: date -v+1d +%F
 curl "localhost:8000/api/v1/booking-slots?date=$TOMORROW&resource_type=treatment_room&limit=10&offset=0" \
-  -H "X-API-Key: $API_KEY"
+  -H "X-API-Key: $SECURITY_API_KEY"
 
 # Price six sessions — the volume discount is applied by the service layer
 curl "localhost:8000/api/v1/pricing?service=Deep%20Tissue%20Massage&quantity=6" \
-  -H "X-API-Key: $API_KEY"
+  -H "X-API-Key: $SECURITY_API_KEY"
 # {"service_name":"Deep Tissue Massage","unit_price":"120.00","quantity":6,
 #  "subtotal":"720.00","discount_percent":"10","discount_amount":"72.00","total":"648.00"}
 
 # Register a CRM account (used by the sales flow, not needed to book a table)
 curl -X POST localhost:8000/api/v1/customers \
-  -H "X-API-Key: $API_KEY" -H 'Content-Type: application/json' \
+  -H "X-API-Key: $SECURITY_API_KEY" -H 'Content-Type: application/json' \
   -d '{"name":"Priya Raman","notes":"Called about a table on Friday."}'
 
 # Book a slot (repeat the same call and it returns 409 slot_unavailable)
 curl -X POST localhost:8000/api/v1/bookings \
-  -H "X-API-Key: $API_KEY" -H 'Content-Type: application/json' \
+  -H "X-API-Key: $SECURITY_API_KEY" -H 'Content-Type: application/json' \
   -d '{"guest_name":"Priya Raman","slot_id":"<uuid>","party_size":2}'
 
 # The same booking, retried safely after a dropped connection
 curl -X POST localhost:8000/api/v1/bookings \
-  -H "X-API-Key: $API_KEY" -H 'Idempotency-Key: 6f1c8b0e-…' \
+  -H "X-API-Key: $SECURITY_API_KEY" -H 'Idempotency-Key: 6f1c8b0e-…' \
   -H 'Content-Type: application/json' \
   -d '{"guest_name":"Priya Raman","slot_id":"<uuid>","party_size":2}'
 
 # Add a document — it is chunked and embedded on the way in
 curl -X POST localhost:8000/api/v1/documents \
-  -H "X-API-Key: $API_KEY" -H 'Content-Type: application/json' \
+  -H "X-API-Key: $SECURITY_API_KEY" -H 'Content-Type: application/json' \
   -d '{"title":"Gift vouchers","content":"Vouchers are valid for twelve months."}'
 
 # Semantic search
 curl -X POST localhost:8000/api/v1/documents/search \
-  -H "X-API-Key: $API_KEY" -H 'Content-Type: application/json' \
+  -H "X-API-Key: $SECURITY_API_KEY" -H 'Content-Type: application/json' \
   -d '{"query":"how do I cancel my appointment","top_k":3}'
 ```
 
@@ -390,14 +390,14 @@ that has no chunks, so `docker compose up --build` is enough; there is nothing t
 
 All settings come from the environment; see [`.env.example`](.env.example) for the annotated list.
 
-`API_KEY` ships as the placeholder `change-me-min-16-chars`. The four agent services carry the same
+`SECURITY_API_KEY` ships as the placeholder `change-me-min-16-chars`. The four agent services carry the same
 literal in their own `.env.example`, so copying each one to `.env` produces a demo where all five
 already agree; it is a shared secret, and rotating it means rotating it in all five at once.
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `DB_URL` | — | Postgres async URL |
-| `API_KEY` | — | **Required.** Shared secret for every `/api/v1` endpoint |
+| `SECURITY_API_KEY` | — | **Required.** Shared secret for every `/api/v1` endpoint |
 | `EMBEDDING_PROVIDER` | `hashing` | Embedding implementation |
 | `EMBEDDING_DIMENSIONS` | `1024` | Vector width; must match the schema |
 | `RATE_LIMIT_PER_MINUTE` | `60` | Global per-IP, per-route limit |
@@ -634,7 +634,7 @@ lookup в середину живого звонка.
 - **Rate limiting** — 60 запросов/минуту на IP и маршрут (`/bookings/{id}` — один маршрут при любом id), 20/минуту для двух эндпоинтов,
   вызывающих провайдера эмбеддингов. Счётчики в памяти процесса.
 - **CORS** — origins из `CORS_ALLOWED_ORIGINS`, credentials выключены (ключ идёт заголовком, а не куки).
-- `API_KEY` в `.env.example` — плейсхолдер `change-me-min-16-chars`. Ровно тот же литерал лежит в
+- `SECURITY_API_KEY` в `.env.example` — плейсхолдер `change-me-min-16-chars`. Ровно тот же литерал лежит в
   `.env.example` четырёх агентских сервисов, поэтому `cp .env.example .env` в каждом из пяти даёт
   сходящееся демо. Ключ общий: ротация означает ротацию во всех пяти сразу.
 

@@ -2,7 +2,7 @@ from functools import lru_cache
 from typing import Annotated, Any
 from zoneinfo import ZoneInfo
 
-from pydantic import Field, PostgresDsn, SecretStr, field_validator
+from pydantic import Field, PostgresDsn, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -10,14 +10,6 @@ class AppSettings(BaseSettings):
     db_url: PostgresDsn | None = Field(
         default=None,
         description="PostgreSQL async connection URL (postgresql+asyncpg://...).",
-    )
-    # Required on purpose: with a default of None the service would start
-    # happily and reject every write with a puzzling 401. Failing at startup
-    # says what is actually wrong. SecretStr keeps it out of logs and repr.
-    api_key: SecretStr = Field(
-        ...,
-        min_length=16,
-        description="Shared secret for every /api/v1 endpoint, sent as the X-API-Key header.",
     )
     rate_limit_per_minute: int = Field(
         default=60,

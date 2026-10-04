@@ -4,7 +4,7 @@ from typing import Annotated
 from fastapi import Security
 from fastapi.security import APIKeyHeader
 
-from src.app.core.settings.app import get_app_settings
+from src.app.core.settings.security import get_security_settings
 from src.app.exceptions.auth import UnauthorizedError
 
 API_KEY_HEADER = "X-API-Key"
@@ -30,7 +30,7 @@ async def require_api_key(provided: Annotated[str | None, Security(api_key_schem
     the scheme into the OpenAPI document automatically, which is what gives
     Swagger its Authorize button — no hand-written schema patching.
     """
-    expected = get_app_settings().api_key.get_secret_value()
+    expected = get_security_settings().api_key.get_secret_value()
     # compare_digest, not ==, so the comparison time does not leak how many
     # leading characters of a guess were right. Bytes rather than str because
     # compare_digest rejects non-ASCII strings.

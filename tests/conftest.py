@@ -35,7 +35,7 @@ from tests.fakes import (
 # no per-import lint suppressions. Environment variables take priority over any
 # local .env, so a developer's own file cannot change what the tests assert on.
 TEST_API_KEY = "test-api-key-long-enough-1234567890"
-os.environ["API_KEY"] = TEST_API_KEY
+os.environ["SECURITY_API_KEY"] = TEST_API_KEY
 os.environ["RATE_LIMIT_PER_MINUTE"] = "5"
 os.environ["EMBEDDING_RATE_LIMIT_PER_MINUTE"] = "3"
 os.environ["CORS_ALLOWED_ORIGINS"] = "http://localhost:3000"

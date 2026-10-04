@@ -14,6 +14,7 @@ from src.app.bootstrap.container import ApplicationContainer
 from src.app.core.logging import setup_logging
 from src.app.core.settings.app import get_app_settings
 from src.app.core.settings.logging import get_logging_settings
+from src.app.core.settings.security import get_security_settings
 
 
 @asynccontextmanager
@@ -35,6 +36,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title="Ops Core API", version="0.1.0", lifespan=lifespan)
 
     settings = get_app_settings()
+    get_security_settings()  # a missing or short SECURITY_API_KEY fails the boot, not the first request
 
     # Middleware is registered inside-out: Starlette prepends each one, so the
     # LAST registered runs FIRST. The order below produces the runtime chain
