@@ -32,8 +32,9 @@ from src.app.services.knowledge import KnowledgeService
 
 logger = getLogger("seed")
 
-# Six columns a row: 5,000 rows stay well under the bind-parameter limit.
-_INSERT_BATCH = 5_000
+# Seven bind parameters a row (the six columns plus the id SQLAlchemy fills
+# in), against a limit of 32,767 per statement: 4,000 rows is 28,000.
+_INSERT_BATCH = 4_000
 
 
 async def _is_seeded(session: AsyncSession) -> bool:

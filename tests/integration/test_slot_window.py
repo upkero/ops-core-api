@@ -45,3 +45,11 @@ async def test_the_window_moves_with_the_date_and_keeps_existing_rows(session: A
     assert (await _slot_dates(session))[-1] == TODAY + timedelta(days=17)
     await session.refresh(booked)
     assert booked.is_available is False
+
+
+async def test_a_year_of_slots_fits_in_the_bind_parameter_limit(session: AsyncSession) -> None:
+    """A year is far past one statement's 32,767 parameters; batching must keep each under it."""
+    added = await ensure_slots(session, today=TODAY, days=365)
+
+    assert added == 365 * len(SLOT_TEMPLATE)
+    assert await ensure_slots(session, today=TODAY, days=365) == 0
