@@ -1,3 +1,4 @@
+import time
 from datetime import UTC, date, datetime
 from uuid import UUID
 
@@ -8,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.contracts.booking import BookingDTO, BookingSlotDTO
 from src.app.contracts.enums import BookingStatus, ResourceType
 from src.app.contracts.pagination import PageDTO, PaginationParams
+from src.app.core.metrics import slot_lock_wait
 from src.app.interfaces.repositories.booking_repository import BookingRepository, IdempotencyKeyTakenError
 from src.app.models.booking import Booking, BookingSlot
 from src.app.repositories.pagination import paginate
@@ -69,7 +71,9 @@ class SqlAlchemyBookingRepository(BookingRepository):
         # concurrent booking for the same slot waits here and then observes
         # is_available=False instead of racing past the check.
         stmt = select(BookingSlot).where(BookingSlot.id == slot_id).with_for_update()
+        started = time.perf_counter()
         row = await self._session.scalar(stmt)
+        slot_lock_wait.record(time.perf_counter() - started)
         return _slot_to_dto(row) if row is not None else None
 
     async def get_by_idempotency_key(self, idempotency_key: str) -> BookingDTO | None:

@@ -1,13 +1,20 @@
 import math
-from collections.abc import Sequence
+import time
+from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
+
+from opentelemetry import trace
 
 from src.app.contracts.knowledge import ChunkMatchDTO, DocumentDTO, NewChunk, NewDocument
+from src.app.core.metrics import embedding_duration, knowledge_searches, knowledge_top_score
 from src.app.exceptions.embeddings import EmbeddingInputError, EmbeddingModelMismatchError
 from src.app.interfaces.llm.embedding_client import EmbeddingClient
 from src.app.interfaces.repositories.knowledge_repository import KnowledgeRepository
 from src.app.services.knowledge.chunker import DEFAULT_MAX_CHARS, DEFAULT_OVERLAP, chunk_text
 
 MAX_TOP_K = 50
+
+_tracer = trace.get_tracer(__name__)
 
 
 class KnowledgeService:
@@ -63,20 +70,69 @@ class KnowledgeService:
 
         # One batched provider call for the whole document rather than one per
         # chunk: fewer round trips, and the provider bills per token either way.
-        vectors = await self._embedding_client.embed_batch(pieces)
+        async with self._embedding("batch", len(pieces)):
+            vectors = await self._embedding_client.embed_batch(pieces)
         chunks = [
             NewChunk(chunk_index=index, chunk_text=piece, embedding=vector)
             for index, (piece, vector) in enumerate(zip(pieces, vectors, strict=True))
         ]
         return self._mean_vector(vectors), chunks
 
+    @asynccontextmanager
+    async def _embedding(self, operation: str, inputs: int) -> AsyncIterator[None]:
+        """Time and trace one provider call. Here rather than in each client: the in-process
+        providers have no HTTP span to show it, and the counts belong to one place."""
+        client = self._embedding_client
+        outcome = "error"
+        started = time.perf_counter()
+        with _tracer.start_as_current_span(
+            "embedding.embed",
+            attributes={
+                "gen_ai.operation.name": "embeddings",
+                "gen_ai.provider.name": client.provider_name,
+                "gen_ai.request.model": client.model_name,
+                "ops.inputs.count": inputs,
+            },
+        ):
+            try:
+                yield
+                outcome = "ok"
+            finally:
+                embedding_duration.record(
+                    time.perf_counter() - started,
+                    {"provider": client.provider_name, "operation": operation, "outcome": outcome},
+                )
+
     async def search(self, query: str, top_k: int) -> Sequence[ChunkMatchDTO]:
         if not query.strip():
             raise EmbeddingInputError("Search query must not be empty.")
         top_k = min(max(top_k, 1), MAX_TOP_K)
 
+        outcome = "error"
+        # The query text stays out: its length is all a span or a metric may say about it.
+        with _tracer.start_as_current_span(
+            "knowledge.search", attributes={"ops.top_k": top_k, "ops.query.length": len(query)}
+        ) as span:
+            try:
+                matches = await self._search(query, top_k)
+                outcome = "hits" if matches else "empty"
+                span.set_attribute("ops.matches.count", len(matches))
+                if matches:
+                    # The best score, whatever the repository's ordering promises about the rest.
+                    top_score = max(match.score for match in matches)
+                    span.set_attribute("ops.top_score", top_score)
+                    knowledge_top_score.record(top_score)
+                return matches
+            except EmbeddingModelMismatchError:
+                outcome = "model_mismatch"
+                raise
+            finally:
+                knowledge_searches.add(1, {"outcome": outcome})
+
+    async def _search(self, query: str, top_k: int) -> Sequence[ChunkMatchDTO]:
         fingerprint = self._embedding_client.fingerprint
-        embedding = await self._embedding_client.embed_query(query)
+        async with self._embedding("query", 1):
+            embedding = await self._embedding_client.embed_query(query)
         matches = await self._repository.search_chunks(embedding, top_k, fingerprint)
         if not matches:
             await self._explain_empty_result(fingerprint)

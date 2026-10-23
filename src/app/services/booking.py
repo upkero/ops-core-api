@@ -1,10 +1,23 @@
+import time
 from collections.abc import Callable
 from datetime import UTC, date, datetime, tzinfo
+from logging import getLogger
 from uuid import UUID
+
+from opentelemetry import trace
 
 from src.app.contracts.booking import BookingDTO, BookingSlotDTO
 from src.app.contracts.enums import BookingStatus, ResourceType
 from src.app.contracts.pagination import PageDTO, PaginationParams
+from src.app.core.metrics import (
+    availability_checks,
+    booking_lookups,
+    booking_rejections,
+    bookings_cancelled,
+    bookings_created,
+)
+from src.app.core.telemetry import guest_name_fp
+from src.app.exceptions.base import BaseAppException
 from src.app.exceptions.domain import (
     EntityNotFoundError,
     IdempotencyKeyConsumedError,
@@ -15,6 +28,13 @@ from src.app.exceptions.domain import (
     SlotUnavailableError,
 )
 from src.app.interfaces.repositories.booking_repository import BookingRepository, IdempotencyKeyTakenError
+
+logger = getLogger(__name__)
+_tracer = trace.get_tracer(__name__)
+
+
+def _elapsed_ms(started: float) -> float:
+    return round((time.perf_counter() - started) * 1000, 1)
 
 
 class BookingService:
@@ -51,7 +71,30 @@ class BookingService:
         status: BookingStatus | None,
         params: PaginationParams,
     ) -> PageDTO[BookingDTO]:
-        return await self._bookings.list_bookings(guest_name, slot_date, status, params)
+        started = time.perf_counter()
+        by = {(True, True): "name_date", (True, False): "name", (False, True): "date"}.get(
+            (bool(guest_name), slot_date is not None), "none"
+        )
+        with _tracer.start_as_current_span("booking.find", attributes={"ops.lookup.by": by}) as span:
+            page = await self._bookings.list_bookings(guest_name, slot_date, status, params)
+            result = "found" if page.total else "not_found"
+            fingerprint = guest_name_fp(guest_name) if guest_name else ""
+            span.set_attribute("ops.results.count", page.total)
+            span.set_attribute("booking.guest_name_fp", fingerprint)
+        booking_lookups.add(1, {"by": by, "result": result})
+        logger.info(
+            "Booking lookup: %s",
+            result,
+            extra={
+                "event": "booking.lookup",
+                "by": by,
+                "result": result,
+                "results": page.total,
+                "guest_name_fp": fingerprint,
+                "duration_ms": _elapsed_ms(started),
+            },
+        )
+        return page
 
     async def cancel_booking(self, booking_id: UUID) -> BookingDTO:
         """Cancel a reservation and put the slot back on offer.
@@ -61,17 +104,38 @@ class BookingService:
         should not have to distinguish "I cancelled it" from "I cancelled it
         twice".
         """
-        booking = await self._bookings.get_booking(booking_id)
+        started = time.perf_counter()
+        with _tracer.start_as_current_span("booking.cancel", attributes={"booking.id": str(booking_id)}) as span:
+            booking, outcome = await self._cancel_booking(booking_id)
+            span.set_attribute("ops.outcome", outcome)
+        bookings_cancelled.add(1, {"outcome": outcome})
+        logger.info(
+            "Booking cancel: %s",
+            outcome,
+            extra={
+                "event": "booking.cancelled",
+                "booking_id": str(booking_id),
+                "outcome": outcome,
+                "duration_ms": _elapsed_ms(started),
+            },
+        )
         if booking is None:
             raise EntityNotFoundError(f"Booking '{booking_id}' was not found.")
+        return booking
+
+    async def _cancel_booking(self, booking_id: UUID) -> tuple[BookingDTO | None, str]:
+        """The booking after the call (None when there is none) and what happened to it."""
+        booking = await self._bookings.get_booking(booking_id)
+        if booking is None:
+            return None, "not_found"
         if booking.status is BookingStatus.CANCELLED:
-            return booking
+            return booking, "already_cancelled"
 
         cancelled = await self._bookings.mark_cancelled(booking_id)
         # Freeing the slot is the point of cancelling: it has to become
         # bookable again in the same transaction, or the table sits empty.
         await self._bookings.mark_slot_free(booking.slot_id)
-        return cancelled
+        return cancelled, "cancelled"
 
     async def list_available_slots(
         self,
@@ -79,9 +143,14 @@ class BookingService:
         resource_type: ResourceType | None,
         params: PaginationParams,
     ) -> PageDTO[BookingSlotDTO]:
-        return await self._bookings.list_available_slots(
-            slot_date, resource_type, params, not_before=self._local_now()
-        )
+        label = resource_type.value if resource_type is not None else "any"
+        with _tracer.start_as_current_span("booking.check_availability", attributes={"resource_type": label}) as span:
+            page = await self._bookings.list_available_slots(
+                slot_date, resource_type, params, not_before=self._local_now()
+            )
+            span.set_attribute("ops.slots.returned", len(page.items))
+        availability_checks.add(1, {"resource_type": label, "result": "slots" if page.total else "empty"})
+        return page
 
     async def create_booking(
         self,
@@ -90,6 +159,58 @@ class BookingService:
         party_size: int,
         idempotency_key: str | None = None,
     ) -> BookingDTO:
+        started = time.perf_counter()
+        fingerprint = guest_name_fp(guest_name)
+        fields = {"slot_id": str(slot_id), "party_size": party_size, "guest_name_fp": fingerprint}
+        with _tracer.start_as_current_span(
+            "booking.create", attributes={"ops.party_size": party_size, "booking.guest_name_fp": fingerprint}
+        ) as span:
+            try:
+                booking, slot, replayed = await self._create_booking(guest_name, slot_id, party_size, idempotency_key)
+            except BaseAppException as exc:
+                span.set_attribute("ops.outcome", exc.error_code)
+                booking_rejections.add(1, {"reason": exc.error_code})
+                logger.info(
+                    "Booking rejected: %s",
+                    exc.error_code,
+                    extra={
+                        "event": "booking.rejected",
+                        "reason": exc.error_code,
+                        **fields,
+                        "duration_ms": _elapsed_ms(started),
+                    },
+                )
+                raise
+            span.set_attribute("ops.outcome", "created")
+            span.set_attribute("ops.idempotent_replay", replayed)
+        # A replay answered before the slot was locked never saw the slot, so its type is unknown.
+        bookings_created.add(
+            1,
+            {
+                "resource_type": slot.resource_type.value if slot is not None else "unknown",
+                "idempotent": "replayed" if replayed else "new",
+            },
+        )
+        logger.info(
+            "Booking created",
+            extra={
+                "event": "booking.created",
+                "booking_id": str(booking.id),
+                **fields,
+                "idempotent_replay": replayed,
+                "duration_ms": _elapsed_ms(started),
+            },
+        )
+        return booking
+
+    async def _create_booking(
+        self,
+        guest_name: str,
+        slot_id: UUID,
+        party_size: int,
+        idempotency_key: str | None,
+    ) -> tuple[BookingDTO, BookingSlotDTO | None, bool]:
+        """The booking, the slot it took (None when a replay answered first), and whether it was a replay."""
         name = guest_name.strip()
         if not name:
             raise InvalidInputError("A booking needs a guest name.")
@@ -100,7 +221,7 @@ class BookingService:
         if idempotency_key is not None:
             replayed = await self._replay(idempotency_key, name, slot_id, party_size)
             if replayed is not None:
-                return replayed
+                return replayed, None, True
 
         # Locking first is what makes the checks below trustworthy: a competing
         # request for the same slot blocks here and then sees is_available=False.
@@ -111,7 +232,7 @@ class BookingService:
         if idempotency_key is not None:
             replayed = await self._replay(idempotency_key, name, slot_id, party_size)
             if replayed is not None:
-                return replayed
+                return replayed, slot, True
         if slot is None:
             raise EntityNotFoundError(f"Booking slot '{slot_id}' was not found.")
         if datetime.combine(slot.slot_date, slot.slot_time) <= self._local_now():
@@ -133,9 +254,9 @@ class BookingService:
             replayed = await self._replay(idempotency_key, name, slot_id, party_size)
             if replayed is None:
                 raise
-            return replayed
+            return replayed, slot, True
         await self._bookings.mark_slot_taken(slot_id)
-        return booking
+        return booking, slot, False
 
     async def _replay(self, idempotency_key: str, name: str, slot_id: UUID, party_size: int) -> BookingDTO | None:
         """The booking this key already made, if any; refuses a key that cannot be replayed."""

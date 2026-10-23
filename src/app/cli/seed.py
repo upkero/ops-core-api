@@ -13,6 +13,7 @@ from collections.abc import Callable
 from datetime import UTC, date, datetime, time, timedelta
 from logging import getLogger
 
+from opentelemetry import trace
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +23,7 @@ from src.app.cli.seed_data import CUSTOMERS, DOCUMENTS, SERVICES, SLOT_TEMPLATE
 from src.app.core.logging import setup_logging
 from src.app.core.settings.app import get_app_settings
 from src.app.core.settings.logging import get_logging_settings
+from src.app.core.telemetry import setup_tracing
 from src.app.interfaces.llm.embedding_client import EmbeddingClient
 from src.app.models.booking import Booking, BookingSlot
 from src.app.models.customer import Customer
@@ -167,7 +169,14 @@ def main() -> None:
     args = parser.parse_args()
 
     setup_logging(get_logging_settings())
-    asyncio.run(seed(force=args.force))
+    provider = setup_tracing("ops-core-api", "ops-core-api")
+    # The root of everything the run does: its statements, its embedding calls. Metrics are not set
+    # up here; a one-shot process has nothing to report that its log lines do not.
+    with trace.get_tracer(__name__).start_as_current_span("seed.run", attributes={"seed.force": args.force}):
+        asyncio.run(seed(force=args.force))
+    # The process exits right after this, before the batch exporter's timer would fire. Capped,
+    # so an unreachable collector delays the API's start by seconds, not by the exporter's default.
+    provider.force_flush(timeout_millis=5000)
 
 
 if __name__ == "__main__":
