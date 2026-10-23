@@ -19,6 +19,11 @@ dependencies = [
     "slowapi>=0.1.9",
     "limits>=5.0.0",
     "tzdata>=2026.5",
+    "opentelemetry-sdk==1.39.1",
+    "opentelemetry-exporter-otlp-proto-grpc==1.39.1",
+    "opentelemetry-instrumentation-fastapi==0.60b1",
+    "opentelemetry-instrumentation-sqlalchemy==0.60b1",
+    "opentelemetry-instrumentation-httpx==0.60b1",
 ]
 
 [dependency-groups]
