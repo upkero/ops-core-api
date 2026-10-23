@@ -1,18 +1,12 @@
-"""Business and rate-limit instruments (OBSERVABILITY-AUDIT §1.1), and the provider that exports them.
+"""Business and rate-limit instruments (OBSERVABILITY-AUDIT §1.1).
 
 Labels are bounded sets only: never a name, an id, a path or a free-text value.
 The instruments are created against the global meter, which binds to the provider
-`setup_metrics` installs even though this module is imported first; until then
-they record nothing, which is what a script that never sets one up wants.
+`telemetry.setup_metrics` installs even though this module is imported first; until
+then they record nothing, which is what a script that never sets one up wants.
 """
 
-import os
-
 from opentelemetry import metrics
-from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
-from opentelemetry.sdk.metrics import MeterProvider
-from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
-from opentelemetry.sdk.resources import Resource
 
 _meter = metrics.get_meter("ops-core-api")
 
@@ -49,19 +43,3 @@ knowledge_top_score = _meter.create_histogram(
     explicit_bucket_boundaries_advisory=_UNIT_INTERVAL,
 )
 
-
-def setup_metrics(resource: Resource) -> MeterProvider:
-    """Install the process-wide MeterProvider, once, before the HTTP and SQL instrumentation runs.
-
-    Same shape as `setup_tracing`: idempotent, and exporting only when a collector
-    is configured (OTEL_EXPORTER_OTLP_ENDPOINT; the interval is OTEL_METRIC_EXPORT_INTERVAL).
-    The tracing module is shared verbatim between services and sets up spans only.
-    """
-    current = metrics.get_meter_provider()
-    if isinstance(current, MeterProvider):
-        return current
-    exporting = bool(os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"))
-    readers = [PeriodicExportingMetricReader(OTLPMetricExporter())] if exporting else []
-    provider = MeterProvider(resource=resource, metric_readers=readers)
-    metrics.set_meter_provider(provider)
-    return provider

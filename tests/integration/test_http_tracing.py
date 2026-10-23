@@ -1,7 +1,7 @@
 """The server span of a request: its name, its route, its parents and its children.
 
 These run the production app, so they also pin what the pinned instrumentation
-release gets wrong on this FastAPI (see `middleware/tracing.py`).
+release gets wrong on this FastAPI (see `_use_route_templates` in `core/telemetry.py`).
 """
 
 from collections.abc import AsyncGenerator

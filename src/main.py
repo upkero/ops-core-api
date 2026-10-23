@@ -9,16 +9,14 @@ from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from src.app.api.v1.exception_handlers import register_exception_handlers
 from src.app.api.v1.middleware.rate_limit import register_rate_limiting
 from src.app.api.v1.middleware.request_id import register_request_id_middleware
-from src.app.api.v1.middleware.tracing import use_route_templates
 from src.app.api.v1.router import api_router
 from src.app.api.v1.routers.health import router as health_router
 from src.app.bootstrap.container import ApplicationContainer
 from src.app.core.logging import setup_logging
-from src.app.core.metrics import setup_metrics
 from src.app.core.settings.app import get_app_settings
 from src.app.core.settings.logging import get_logging_settings
 from src.app.core.settings.security import get_security_settings
-from src.app.core.telemetry import instrument_app, setup_tracing
+from src.app.core.telemetry import instrument_app, setup_metrics, setup_tracing
 
 
 @asynccontextmanager
@@ -74,7 +72,6 @@ def create_app() -> FastAPI:
 
     # Last, so the server span is the outermost layer: it also wraps the rate-limit middleware,
     # and a 429 is a span like any other response.
-    use_route_templates()
     instrument_app(app)
     return app
 

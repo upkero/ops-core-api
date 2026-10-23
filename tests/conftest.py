@@ -43,8 +43,6 @@ os.environ["CORS_ALLOWED_ORIGINS"] = "http://localhost:3000"
 os.environ["EMBEDDING_PROVIDER"] = "hashing"
 os.environ.setdefault("DB_URL", "postgresql+asyncpg://unused:unused@localhost:1/unused")
 os.environ.setdefault("LOG_LEVEL", "WARNING")
-# The stable HTTP metric names (http.server.request.duration), which the dashboards are written against.
-os.environ["OTEL_SEMCONV_STABILITY_OPT_IN"] = "http"
 
 
 TEST_DB_URL = os.environ.get("TEST_DB_URL")

@@ -12,9 +12,9 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from src.app.api.v1.exception_handlers import error_response_from_exception
-from src.app.api.v1.route_template import route_template
 from src.app.core.metrics import rate_limited
 from src.app.core.settings.app import get_app_settings
+from src.app.core.telemetry import route_template
 from src.app.exceptions.rate_limit import RateLimitExceededError
 
 logger = getLogger(__name__)
