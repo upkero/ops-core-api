@@ -9,6 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    SmallInteger,
     String,
     Time,
     UniqueConstraint,
@@ -25,13 +26,17 @@ from src.app.models.base import Base, pg_enum
 class BookingSlot(Base):
     __tablename__ = "booking_slot"
     __table_args__ = (
-        UniqueConstraint("resource_type", "slot_date", "slot_time", name="uq_booking_slot_resource_datetime"),
+        # unit: which of several identical resources (table 1, table 2, ...) the slot is for.
+        UniqueConstraint(
+            "resource_type", "unit", "slot_date", "slot_time", name="uq_booking_slot_resource_unit_datetime"
+        ),
         Index("ix_booking_slot_lookup", "slot_date", "resource_type", "is_available"),
         CheckConstraint("capacity > 0", name="ck_booking_slot_capacity_positive"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     resource_type: Mapped[ResourceType] = mapped_column(pg_enum(ResourceType, "resource_type"))
+    unit: Mapped[int] = mapped_column(SmallInteger, default=1, server_default="1")
     slot_date: Mapped[date] = mapped_column(Date)
     slot_time: Mapped[time] = mapped_column(Time)
     capacity: Mapped[int] = mapped_column(Integer)

@@ -32,6 +32,9 @@ from src.app.services.knowledge import KnowledgeService
 
 logger = getLogger("seed")
 
+# Six columns a row: 5,000 rows stay well under the bind-parameter limit.
+_INSERT_BATCH = 5_000
+
 
 async def _is_seeded(session: AsyncSession) -> bool:
     return bool(await session.scalar(select(func.count()).select_from(Customer)))
@@ -65,25 +68,32 @@ async def ensure_slots(session: AsyncSession, *, today: date, days: int) -> int:
     what keeps the window rolling forward instead of running dry a week after
     the first seed. The unique constraint on (resource, date, time) is what
     makes "no duplicates" a database guarantee rather than a hope.
+
+    A year of slots is tens of thousands of rows, so they go in batches: one
+    statement would pass Postgres's 32,767 bind-parameter limit.
     """
     rows = [
         {
             "resource_type": resource_type,
+            "unit": unit,
             "slot_date": today + timedelta(days=day),
             "slot_time": time(hour, minute),
             "capacity": capacity,
             "is_available": True,
         }
         for day in range(1, days + 1)
-        for resource_type, hour, minute, capacity in SLOT_TEMPLATE
+        for resource_type, unit, hour, minute, capacity in SLOT_TEMPLATE
     ]
-    result = await session.execute(
-        insert(BookingSlot)
-        .values(rows)
-        .on_conflict_do_nothing(constraint="uq_booking_slot_resource_datetime")
-        .returning(BookingSlot.id)
-    )
-    return len(result.all())
+    added = 0
+    for start in range(0, len(rows), _INSERT_BATCH):
+        result = await session.execute(
+            insert(BookingSlot)
+            .values(rows[start : start + _INSERT_BATCH])
+            .on_conflict_do_nothing(constraint="uq_booking_slot_resource_unit_datetime")
+            .returning(BookingSlot.id)
+        )
+        added += len(result.all())
+    return added
 
 
 async def reindex_unindexed_documents(session: AsyncSession, embedding_client: Callable[[], EmbeddingClient]) -> int:

@@ -32,23 +32,39 @@ SERVICES: tuple[tuple[str, Decimal, str], ...] = (
     ("Meeting Room Hire", Decimal("60.00"), "Per hour hire of the workshop room, seats ten, screen included."),
 )
 
-# (resource type, hour, minute, capacity), repeated for every day of the slot window
-# (SLOT_WINDOW_DAYS in the settings).
-SLOT_TEMPLATE: tuple[tuple[ResourceType, int, int, int], ...] = (
-    (ResourceType.TABLE, 12, 0, 2),
-    (ResourceType.TABLE, 13, 30, 4),
-    (ResourceType.TABLE, 18, 0, 4),
-    (ResourceType.TABLE, 19, 30, 6),
-    (ResourceType.MEETING_ROOM, 9, 0, 10),
-    (ResourceType.MEETING_ROOM, 11, 0, 10),
-    (ResourceType.MEETING_ROOM, 14, 0, 6),
-    (ResourceType.MEETING_ROOM, 16, 30, 6),
+# The restaurant floor: (table number, seats). Several tables of each size, so a
+# busy evening can still seat a second party of four at seven.
+TABLES: tuple[tuple[int, int], ...] = (
+    (1, 2), (2, 2), (3, 2), (4, 2),
+    (5, 4), (6, 4), (7, 4), (8, 4),
+    (9, 6), (10, 6),
+    (11, 8),
+)  # fmt: skip
+
+# A seating lasts two hours, so no table is offered twice inside two hours: odd
+# tables turn at 12, 14, 18 and 20, even ones at 13, 19 and 21. Every lunch and
+# dinner hour has tables of most sizes, and they fill up independently.
+_ODD_SEATINGS = (12, 14, 18, 20)
+_EVEN_SEATINGS = (13, 19, 21)
+
+# (resource type, unit, hour, minute, capacity), repeated for every day of the
+# slot window (SLOT_WINDOW_DAYS in the settings).
+SLOT_TEMPLATE: tuple[tuple[ResourceType, int, int, int, int], ...] = (
+    *(
+        (ResourceType.TABLE, number, hour, 0, seats)
+        for number, seats in TABLES
+        for hour in (_ODD_SEATINGS if number % 2 else _EVEN_SEATINGS)
+    ),
+    (ResourceType.MEETING_ROOM, 1, 9, 0, 10),
+    (ResourceType.MEETING_ROOM, 1, 11, 0, 10),
+    (ResourceType.MEETING_ROOM, 1, 14, 0, 6),
+    (ResourceType.MEETING_ROOM, 1, 16, 30, 6),
     # Capacity 1: a treatment room takes one client at a time, which is also
     # what stops a party of four being offered a massage slot.
-    (ResourceType.TREATMENT_ROOM, 10, 0, 1),
-    (ResourceType.TREATMENT_ROOM, 12, 30, 1),
-    (ResourceType.TREATMENT_ROOM, 15, 0, 1),
-    (ResourceType.TREATMENT_ROOM, 17, 30, 1),
+    (ResourceType.TREATMENT_ROOM, 1, 10, 0, 1),
+    (ResourceType.TREATMENT_ROOM, 1, 12, 30, 1),
+    (ResourceType.TREATMENT_ROOM, 1, 15, 0, 1),
+    (ResourceType.TREATMENT_ROOM, 1, 17, 30, 1),
 )
 
 DOCUMENTS: tuple[tuple[str, str], ...] = (

@@ -29,7 +29,7 @@ class AppSettings(BaseSettings):
         ),
     )
     slot_window_days: int = Field(
-        default=14,
+        default=365,
         gt=0,
         le=365,
         description="How many days ahead (starting tomorrow) booking slots are kept on offer.",
