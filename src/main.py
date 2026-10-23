@@ -4,17 +4,21 @@ from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 
 from src.app.api.v1.exception_handlers import register_exception_handlers
 from src.app.api.v1.middleware.rate_limit import register_rate_limiting
 from src.app.api.v1.middleware.request_id import register_request_id_middleware
+from src.app.api.v1.middleware.tracing import use_route_templates
 from src.app.api.v1.router import api_router
 from src.app.api.v1.routers.health import router as health_router
 from src.app.bootstrap.container import ApplicationContainer
 from src.app.core.logging import setup_logging
+from src.app.core.metrics import setup_metrics
 from src.app.core.settings.app import get_app_settings
 from src.app.core.settings.logging import get_logging_settings
 from src.app.core.settings.security import get_security_settings
+from src.app.core.telemetry import instrument_app, setup_tracing
 
 
 @asynccontextmanager
@@ -32,6 +36,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 def create_app() -> FastAPI:
     setup_logging(get_logging_settings())
+    # Providers first: the instrumentations below read the global ones when they attach.
+    setup_metrics(setup_tracing("ops-core-api", "ops-core-api").resource)
+    # The OpenAI SDK's own httpx client, when an embedding provider is configured.
+    httpx_instrumentor = HTTPXClientInstrumentor()
+    if not httpx_instrumentor.is_instrumented_by_opentelemetry:  # the app factory runs once per test
+        httpx_instrumentor.instrument()
 
     app = FastAPI(title="Ops Core API", version="0.1.0", lifespan=lifespan)
 
@@ -62,6 +72,10 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(api_router)
 
+    # Last, so the server span is the outermost layer: it also wraps the rate-limit middleware,
+    # and a 429 is a span like any other response.
+    use_route_templates()
+    instrument_app(app)
     return app
 
 

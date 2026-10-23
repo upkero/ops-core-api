@@ -1,4 +1,4 @@
-import re
+import ipaddress
 import time
 from collections.abc import Awaitable, Callable
 from logging import getLogger
@@ -12,6 +12,8 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from src.app.api.v1.exception_handlers import error_response_from_exception
+from src.app.api.v1.route_template import route_template
+from src.app.core.metrics import rate_limited
 from src.app.core.settings.app import get_app_settings
 from src.app.exceptions.rate_limit import RateLimitExceededError
 
@@ -57,31 +59,13 @@ _global_limiter = FixedWindowRateLimiter(MemoryStorage())
 _EXEMPT_PATHS = frozenset({"/health/live", "/health/ready"})
 
 
-# Every path that matches no route shares this one counter, so junk URLs can neither
-# dodge the limit nor make the counters grow without bound.
-_UNMATCHED = "<unmatched>"
-
-
-def _route_matchers(app: FastAPI) -> list[tuple[re.Pattern[str], str]]:
-    """(regex, template) for every documented route, e.g. `/api/v1/bookings/{booking_id}`.
-
-    Built from the OpenAPI document rather than from `app.routes`: the routing
-    objects are private to FastAPI and nested, while the document is the public,
-    flattened list of the same templates. Fewest parameters first, so a literal
-    segment (`/pricing/services`) wins over a parameterised sibling.
-    """
-    templates = sorted(app.openapi()["paths"], key=lambda template: template.count("{"))
-    return [
-        (
-            re.compile(
-                "".join(
-                    "[^/]+" if part.startswith("{") else re.escape(part) for part in re.split(r"(\{[^}]+\})", template)
-                )
-            ),
-            template,
-        )
-        for template in templates
-    ]
+def _network_of(address: str) -> str:
+    """The caller's network, for logs: a /24 (IPv4) or /48 (IPv6) never names one visitor."""
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return "unknown"
+    return str(ipaddress.ip_network(f"{ip}/{24 if ip.version == 4 else 48}", strict=False))
 
 
 def reset_global_rate_limit() -> None:
@@ -109,13 +93,6 @@ def register_rate_limiting(app: FastAPI) -> None:
     # Settings are read here, at application build time, rather than at module
     # import: importing this module must not depend on a configured environment.
     limit = parse(global_limit())
-    matchers: list[tuple[re.Pattern[str], str]] = []
-
-    def route_template(path: str) -> str:
-        # Built on first use: the routers are included after this function runs.
-        if not matchers:
-            matchers.extend(_route_matchers(app))
-        return next((template for pattern, template in matchers if pattern.fullmatch(path)), _UNMATCHED)
 
     @app.middleware("http")
     async def global_rate_limit_middleware(
@@ -129,10 +106,12 @@ def register_rate_limiting(app: FastAPI) -> None:
         identifier = get_remote_address(request)
         # Counted per route template, not per concrete path: hammering one endpoint
         # must not lock a client out of the whole API, and /bookings/{id} must not
-        # get a fresh allowance for every id.
-        scope = route_template(path)
+        # get a fresh allowance for every id. Every path that matches no route shares one counter,
+        # so junk URLs can neither dodge the limit nor make the counters grow without bound.
+        scope = route_template(app, path)
         if not _global_limiter.hit(limit, identifier, scope):
-            logger.warning("Rate limit exceeded for %s on %s %s", identifier, request.method, path)
+            rate_limited.add(1, {"route": scope, "limiter": "global"})
+            logger.warning("Rate limit exceeded for %s on %s %s", _network_of(identifier), request.method, path)
             headers = _rate_limit_headers(limit, identifier, scope, rejected=True)
             return error_response_from_exception(
                 RateLimitExceededError(f"Rate limit exceeded: {limit}."),
@@ -156,6 +135,7 @@ async def handle_rate_limit_exceeded(request: Request, exc: Exception) -> Respon
     would be the one response shape in the API that clients have to special-case.
     """
     detail = f"Rate limit exceeded: {exc.detail}." if isinstance(exc, RateLimitExceeded) else None
+    rate_limited.add(1, {"route": route_template(request.app, request.url.path), "limiter": "embedding"})
     response = error_response_from_exception(RateLimitExceededError(detail))
 
     # Keep slowapi's Retry-After / X-RateLimit-* headers where it set them.

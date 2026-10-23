@@ -21,6 +21,16 @@ class AppSettings(BaseSettings):
         gt=0,
         description="Tighter per-minute limit for endpoints that call the embedding provider.",
     )
+    db_statement_timeout_ms: int = Field(
+        default=5000,
+        gt=0,
+        description="Longest a single SQL statement may run before Postgres cancels it.",
+    )
+    db_lock_timeout_ms: int = Field(
+        default=3000,
+        gt=0,
+        description="Longest a statement may wait for a row lock (the slot FOR UPDATE) before Postgres gives up.",
+    )
     business_timezone: str = Field(
         default="Europe/Moscow",
         description=(
