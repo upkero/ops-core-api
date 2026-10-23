@@ -446,6 +446,12 @@ uv run alembic revision --autogenerate -m "message"
 uv run python -m src.app.cli.seed     # seed demo data (idempotent; --force to reseed)
 ```
 
+**Migrations only add.** A deploy that fails its health check is rolled back to the previous image, but
+the schema stays migrated. So a migration may add a column (with a default), a table or an index, and
+removing or renaming something waits for a later release, once no running image uses it
+(expand/contract). The container's start script relies on this: if the database is at a revision the
+image doesn't know, it logs a warning and serves without migrating or seeding instead of crash-looping.
+
 ## Known limitations
 
 - Rate-limit counters live in process memory, so they reset on restart and would need Redis behind
