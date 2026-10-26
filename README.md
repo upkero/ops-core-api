@@ -9,6 +9,10 @@
 Central operations backend for a fictional multi-business: customers, bookable slots, bookings,
 service pricing, and a knowledge base with semantic search over pgvector.
 
+**Live demo:** <https://upkero.com>. This API is the backend behind the booking, sales, RAG and MCP demos
+there; they call it from their servers with the API key, so it has no public address of its own. The
+demo runs it with `baai/bge-m3` embeddings through OpenRouter.
+
 ![The double-booking scenario in the live demo: the second request for the same slot gets a 409.](docs/demo.png)
 
 *The double-booking scenario in the live demo: the second request for the same slot gets a 409.*
@@ -77,7 +81,7 @@ docker compose up --build
 ```
 
 That brings up Postgres with pgvector and the API on <http://localhost:8000>, applies migrations,
-and loads demo data (6 customers, two weeks of slots that roll forward on every start, 5 priced
+and loads demo data (6 customers, a year of slots that roll forward on every start (`SLOT_WINDOW_DAYS`, 365 by default), 5 priced
 services, 5 knowledge documents).
 Interactive docs: <http://localhost:8000/docs>.
 
@@ -249,8 +253,9 @@ dropped call needs: cancelling twice returns the same booking and the same `200`
 
 Finding the booking to cancel is the other half — nobody reads a UUID down the phone — so
 `GET /api/v1/bookings` filters by `guest_name`, `date` and `status` (defaulting to active ones).
-**It requires the API key even when reads are public:** browsing free slots and prices is harmless,
-but a list of guest names with the times they are expected is the most sensitive read in the API.
+**It needs the API key like every other call, and it is the read that needs it most:** browsing free
+slots and prices is harmless, but a list of guest names with the times they are expected is the most
+sensitive read in the API.
 
 One consequence worth naming: `slot_id` cannot carry a plain `UNIQUE` constraint any more, because a
 slot may be booked, cancelled and booked again. Uniqueness is a *partial* index —
@@ -391,6 +396,27 @@ stemmer changes the vector space just as much as swapping providers does.
 every stored chunk. The documents stay, and on the next start the seed step re-embeds every document
 that has no chunks, so `docker compose up --build` is enough; there is nothing to run by hand.
 
+## Observability and CD
+
+Traces and metrics leave the process over OTLP. With `OTEL_EXPORTER_OTLP_ENDPOINT` set, every request
+becomes a trace and the HTTP, database and business instruments are pushed to the collector. Unset, the
+spans are still created, so every log line carries `trace_id` and `span_id`, and nothing is exported.
+The setup is `src/app/core/telemetry.py`; the instruments are in `src/app/core/metrics.py`
+(`ops.bookings.created`, `ops.booking.rejections`, `ops.availability.checks`, `ops.slot_lock.wait`,
+`ops.knowledge.search`, `ops.embedding.duration` and others). Embedding calls also record their tokens and,
+when the provider reports it, their cost (`llm.cost`, the same instrument the other services use).
+
+Labels are bounded sets, never a name or an id. A guest name appears in no span, metric or log line;
+`guest_name_fp` (keyed by `OBS_FINGERPRINT_KEY`) puts a fingerprint there instead, so "the same guest
+booked and then looked the booking up" can still be followed. Each response also carries `X-Request-ID`,
+and the id is set on the server span. `OTEL_PYTHON_FASTAPI_EXCLUDED_URLS=health/live,health/ready` keeps the health probes out of the traces.
+
+Every push to a branch runs lint, mypy and the tests against a real pgvector database. A push to `main`
+that passes builds the image, tags it `ghcr.io/upkero/ops-core-api:<sha>` (and `:main`), and deploys it
+over SSH with a key that can only run `ops-core-api <sha>`. The server pulls that image, waits for it to
+turn healthy and rolls back to the previous one if it does not. Deploys land in push order, one at a time.
+The dashboards and alerts live with the rest of the deployment, outside this repository.
+
 ## Configuration
 
 All settings come from the environment; see [`.env.example`](.env.example) for the annotated list.
@@ -446,11 +472,16 @@ uv run alembic revision --autogenerate -m "message"
 uv run python -m src.app.cli.seed     # seed demo data (idempotent; --force to reseed)
 ```
 
-**Migrations only add.** A deploy that fails its health check is rolled back to the previous image, but
-the schema stays migrated. So a migration may add a column (with a default), a table or an index, and
-removing or renaming something waits for a later release, once no running image uses it
+**New migrations only add.** A deploy that fails its health check is rolled back to the previous image,
+but the schema stays migrated. So a migration may add a column (with a default), a table or an index,
+and removing or renaming something waits for a later release, once no running image uses it
 (expand/contract). The container's start script relies on this: if the database is at a revision the
 image doesn't know, it logs a warning and serves without migrating or seeding instead of crash-looping.
+
+Three early migrations predate the rule and do remove something: `0004` drops `booking.customer_id`,
+`0007` drops every stored embedding to resize the vectors, and `0008` replaces the slot uniqueness
+constraint. An image older than one of them cannot run against a database migrated past it, so those
+are rolled back from a backup, not by redeploying the old image.
 
 ## Known limitations
 
@@ -459,7 +490,7 @@ image doesn't know, it logs a warning and serves without migrating or seeding in
 - Rate limits are keyed on the caller's IP. Behind one Docker network or proxy every consumer (the
   agent services, the site bridge) arrives from the same address and shares one allowance per route,
   including the 20/minute embedding budget. Limit each consumer on its own side.
-- A single shared write key, not per-user auth — the right weight for a demo (reads need the key too, see above).
+- A single shared API key, not per-user auth — the right weight for a demo. Every `/api/v1` call needs it, reads included (see above).
 - Offset-based paging. Fine at this size; a cursor would be the answer for a large, rapidly
   changing collection, where an insert can shift rows between pages.
 
