@@ -48,6 +48,10 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"
 
+# This starts the API only: it does not migrate or seed. Both docker-compose files (this
+# repository's and the deployment's) override it with scripts/start.sh, which applies the
+# migrations and the seed step first. Running the bare image against an unmigrated
+# database serves a schema the code does not match.
 CMD ["uvicorn", "src.main:app", \
      "--host", "0.0.0.0", \
      "--port", "8000", \
