@@ -10,6 +10,7 @@ Kept apart from the seeding logic so the prose can be edited without touching
 any code that talks to the database.
 """
 
+from datetime import date, time
 from decimal import Decimal
 
 from src.app.contracts.enums import CustomerStatus, ResourceType
@@ -48,7 +49,8 @@ _ODD_SEATINGS = (12, 14, 18, 20)
 _EVEN_SEATINGS = (13, 19, 21)
 
 # (resource type, unit, hour, minute, capacity), repeated for every day of the
-# slot window (SLOT_WINDOW_DAYS in the settings).
+# slot window (SLOT_WINDOW_DAYS in the settings) except where `slot_template_for`
+# drops it: the clinic's treatment rooms keep the clinic's opening hours.
 SLOT_TEMPLATE: tuple[tuple[ResourceType, int, int, int, int], ...] = (
     *(
         (ResourceType.TABLE, number, hour, 0, seats)
@@ -66,6 +68,33 @@ SLOT_TEMPLATE: tuple[tuple[ResourceType, int, int, int, int], ...] = (
     (ResourceType.TREATMENT_ROOM, 1, 15, 0, 1),
     (ResourceType.TREATMENT_ROOM, 1, 17, 30, 1),
 )
+
+# The clinic's opening hours as the "Opening hours, location and parking" document below
+# states them: Monday to Friday 8-20, Saturday 9-18, closed on Sunday. The last appointment
+# starts one hour before closing. Weekday numbers follow `date.weekday()`.
+_CLINIC_HOURS = {weekday: (time(8), time(20)) for weekday in range(5)} | {5: (time(9), time(18))}
+
+
+def _clinic_takes_appointment_at(day: date, start: time) -> bool:
+    hours = _CLINIC_HOURS.get(day.weekday())
+    if hours is None:
+        return False
+    opening, closing = hours
+    return opening <= start <= time(closing.hour - 1, closing.minute)
+
+
+def slot_template_for(day: date) -> tuple[tuple[ResourceType, int, int, int, int], ...]:
+    """The slots offered on one calendar day.
+
+    Tables and the meeting room follow SLOT_TEMPLATE every day. Treatment rooms only
+    where the clinic could take the appointment: none on Sunday, and on Saturday nothing
+    that starts later than an hour before the 18:00 closing.
+    """
+    return tuple(
+        entry
+        for entry in SLOT_TEMPLATE
+        if entry[0] is not ResourceType.TREATMENT_ROOM or _clinic_takes_appointment_at(day, time(entry[2], entry[3]))
+    )
 
 DOCUMENTS: tuple[tuple[str, str], ...] = (
     (
