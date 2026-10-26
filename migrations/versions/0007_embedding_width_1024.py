@@ -5,8 +5,10 @@ Revises: 0006
 Create Date: 2026-10-02
 
 Vectors of one width cannot be cast to another, and vectors from two models are
-not comparable anyway, so every stored embedding is dropped. Re-index afterwards:
-    python -m src.app.cli.seed --force
+not comparable anyway, so every stored embedding is dropped. Nothing has to be run by
+hand afterwards: the documents stay, and the next start (scripts/start.sh runs the
+seed step) re-embeds every document that has no chunks. `seed --force` would also
+work, but it wipes customers, services and slots along with the chunks.
 """
 
 from collections.abc import Sequence
