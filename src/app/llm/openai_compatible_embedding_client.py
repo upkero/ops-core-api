@@ -1,6 +1,9 @@
 from collections.abc import Sequence
 from typing import Any
 
+from opentelemetry import trace
+
+from src.app.core import metrics
 from src.app.core.settings.embeddings import EmbeddingSettings
 from src.app.exceptions.embeddings import EmbeddingGenerationError, EmbeddingInputError
 from src.app.interfaces.llm.embedding_client import EmbeddingClient
@@ -44,6 +47,7 @@ class OpenAICompatibleEmbeddingClient(EmbeddingClient):
 
         response = await self._client.embeddings.create(**self._request_params(texts))
         vectors = [item.embedding for item in sorted(response.data, key=lambda item: item.index)]
+        self._record_usage(response)
 
         if len(vectors) != len(texts):
             raise EmbeddingGenerationError("Embedding provider returned a different number of vectors than inputs.")
@@ -58,6 +62,32 @@ class OpenAICompatibleEmbeddingClient(EmbeddingClient):
         close = getattr(self._client, "close", None)
         if callable(close):
             await close()
+
+    def _record_usage(self, response: Any) -> None:
+        """Tokens and, when the provider reports it, the cost, onto the current span and the metrics.
+
+        Counts and cost only: never the text. The same instrument names the rag service uses, so
+        one panel sums spend across services.
+        """
+        usage = getattr(response, "usage", None)
+        span = trace.get_current_span()
+        tokens = getattr(usage, "prompt_tokens", None)
+        if isinstance(tokens, int):
+            span.set_attribute("gen_ai.usage.input_tokens", tokens)
+            metrics.token_usage.record(
+                tokens,
+                {
+                    "gen_ai.operation.name": "embeddings",
+                    "gen_ai.provider.name": self.provider_name,
+                    "gen_ai.request.model": self.model_name,
+                    "gen_ai.token.type": "input",
+                },
+            )
+        # Only OpenRouter reports it, and the SDK keeps unknown usage fields as attributes.
+        cost = getattr(usage, "cost", None)
+        if isinstance(cost, int | float):
+            span.set_attribute("llm.cost", float(cost))
+            metrics.llm_cost.add(float(cost), {"provider": self.provider_name, "model": self.model_name})
 
     def _request_params(self, texts: Sequence[str]) -> dict[str, object]:
         params: dict[str, object] = {"model": self._settings.model, "input": list(texts)}

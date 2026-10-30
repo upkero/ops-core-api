@@ -19,7 +19,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.bootstrap.container import ApplicationContainer
-from src.app.cli.seed_data import CUSTOMERS, DOCUMENTS, SERVICES, SLOT_TEMPLATE
+from src.app.cli.seed_data import CUSTOMERS, DOCUMENTS, SERVICES, slot_template_for
 from src.app.core.logging import setup_logging
 from src.app.core.settings.app import get_app_settings
 from src.app.core.settings.logging import get_logging_settings
@@ -85,7 +85,7 @@ async def ensure_slots(session: AsyncSession, *, today: date, days: int) -> int:
             "is_available": True,
         }
         for day in range(1, days + 1)
-        for resource_type, unit, hour, minute, capacity in SLOT_TEMPLATE
+        for resource_type, unit, hour, minute, capacity in slot_template_for(today + timedelta(days=day))
     ]
     added = 0
     for start in range(0, len(rows), _INSERT_BATCH):

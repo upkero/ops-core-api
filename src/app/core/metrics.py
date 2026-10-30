@@ -22,6 +22,15 @@ embedding_duration = _meter.create_histogram(
     description="Embedding time, including providers that run in-process and have no HTTP span.",
     explicit_bucket_boundaries_advisory=_SECONDS,
 )
+token_usage = _meter.create_histogram(
+    "gen_ai.client.token.usage",
+    unit="{token}",
+    description="Tokens per provider request.",
+    explicit_bucket_boundaries_advisory=[1, 4, 16, 64, 256, 1024, 4096, 16384, 65536, 262144],
+)
+llm_cost = _meter.create_counter(
+    "llm.cost", description="Provider spend in USD, as reported by the provider (OpenRouter usage.cost)."
+)
 bookings_created = _meter.create_counter("ops.bookings.created", description="Bookings taken, or replayed by key.")
 booking_rejections = _meter.create_counter(
     "ops.booking.rejections", description="Bookings refused, by the error code the caller received."
