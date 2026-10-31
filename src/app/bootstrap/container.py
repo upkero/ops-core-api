@@ -1,4 +1,3 @@
-import inspect
 from functools import cached_property
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
@@ -33,17 +32,10 @@ class ApplicationContainer:
         return build_session_factory(self._db_engine)
 
     async def close(self) -> None:
-        closed_dependency_ids: set[int] = set()
         for dependency in tuple(self.__dict__.values()):
-            dependency_id = id(dependency)
-            if dependency_id in closed_dependency_ids:
-                continue
             close = getattr(dependency, "close", None)
             if callable(close):
-                result = close()
-                if inspect.isawaitable(result):
-                    await result
-            closed_dependency_ids.add(dependency_id)
+                await close()
 
         if "_db_engine" in self.__dict__:
             await self._db_engine.dispose()
