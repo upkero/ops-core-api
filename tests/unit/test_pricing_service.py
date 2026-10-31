@@ -4,14 +4,14 @@ import pytest
 
 from src.app.contracts.pagination import PaginationParams
 from src.app.exceptions.domain import EntityNotFoundError
-from src.app.services.pricing import NoDiscountPolicy, PricingService, QuantityTierDiscountPolicy
+from src.app.services.pricing import PricingService
 from tests.fakes import FakePricingRepository, make_pricing_item
 
 
 @pytest.fixture
 def service() -> PricingService:
     repository = FakePricingRepository([make_pricing_item("Deep Tissue Massage", "120.00")])
-    return PricingService(repository, QuantityTierDiscountPolicy())
+    return PricingService(repository)
 
 
 @pytest.mark.parametrize(
@@ -55,21 +55,29 @@ async def test_quote_rejects_a_non_positive_quantity(service: PricingService) ->
         await service.quote("Deep Tissue Massage", 0)
 
 
-async def test_swapping_the_policy_changes_the_price_without_touching_the_service() -> None:
+async def test_a_different_tier_table_changes_the_price_without_touching_the_service() -> None:
     repository = FakePricingRepository([make_pricing_item("Deep Tissue Massage", "120.00")])
 
-    discounted = await PricingService(repository, QuantityTierDiscountPolicy()).quote("Deep Tissue Massage", 10)
-    full_price = await PricingService(repository, NoDiscountPolicy()).quote("Deep Tissue Massage", 10)
+    discounted = await PricingService(repository).quote("Deep Tissue Massage", 10)
+    full_price = await PricingService(repository, tiers=()).quote("Deep Tissue Massage", 10)
 
     assert discounted.total == Decimal("1080.00")
     assert full_price.total == Decimal("1200.00")
+
+
+async def test_the_tier_table_need_not_be_sorted() -> None:
+    repository = FakePricingRepository([make_pricing_item("Deep Tissue Massage", "100.00")])
+    service = PricingService(repository, tiers=[(20, Decimal("15")), (6, Decimal("10"))])
+
+    assert (await service.quote("Deep Tissue Massage", 10)).discount_percent == Decimal("10")
+    assert (await service.quote("Deep Tissue Massage", 25)).discount_percent == Decimal("15")
 
 
 async def test_rounding_is_half_up_rather_than_bankers() -> None:
     # 3 x 8.35 = 25.05, less 10% = 2.505 -> 2.51, not the 2.50 that banker's
     # rounding would produce.
     repository = FakePricingRepository([make_pricing_item("Odd Price", "8.35")])
-    service = PricingService(repository, QuantityTierDiscountPolicy([(3, Decimal("10"))]))
+    service = PricingService(repository, tiers=[(3, Decimal("10"))])
 
     quote = await service.quote("Odd Price", 3)
 
@@ -80,6 +88,6 @@ async def test_rounding_is_half_up_rather_than_bankers() -> None:
 async def test_list_services_is_sorted_by_name() -> None:
     repository = FakePricingRepository([make_pricing_item("Zebra"), make_pricing_item("Alpha")])
 
-    items = await PricingService(repository, NoDiscountPolicy()).list_services(PaginationParams())
+    items = await PricingService(repository).list_services(PaginationParams())
 
     assert [item.service_name for item in items.items] == ["Alpha", "Zebra"]

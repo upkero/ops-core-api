@@ -56,8 +56,8 @@ def get_booking_service(session: DBSessionDep) -> BookingService:
     return BookingService(SqlAlchemyBookingRepository(session), business_tz=get_app_settings().business_tz)
 
 
-def get_pricing_service(session: DBSessionDep, container: ContainerDep) -> PricingService:
-    return PricingService(SqlAlchemyPricingRepository(session), container.discount_policy)
+def get_pricing_service(session: DBSessionDep) -> PricingService:
+    return PricingService(SqlAlchemyPricingRepository(session))
 
 
 def get_knowledge_service(session: DBSessionDep, container: ContainerDep) -> KnowledgeService:

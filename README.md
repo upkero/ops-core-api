@@ -35,7 +35,7 @@ but it stands on its own — a plain HTTP API with no agent framework anywhere i
 |---|---|
 | CRM | Customer lookup by id and case-insensitive name search |
 | Bookings | Availability listing and booking creation under a guest name, with the "one party per slot" rule enforced in the service layer *and* by a database constraint |
-| Pricing | Quote for a quantity of a service, with volume discounts applied by an interchangeable policy |
+| Pricing | Quote for a quantity of a service, with the volume discount read from a tier table |
 | Knowledge base | Documents are chunked and embedded on write; search embeds the query and finds the nearest chunks with pgvector's `<=>` operator |
 
 ## Architecture
@@ -66,8 +66,10 @@ Design patterns, and where to read them:
 |---|---|---|
 | **Repository** | `interfaces/repositories/`, `repositories/` | Services reach data through ports that return contracts, so they never touch SQL. The in-memory test fakes are the second implementation. |
 | **Factory** | `llm/embedding_factory.py` | The one place a provider client is constructed. Adding a provider is a new class plus a branch — no service changes. |
-| **Strategy** | `interfaces/pricing/discount_policy.py`, `services/pricing/discount_policies.py` | The discount rule is an injected object rather than an `if quantity > 5`, so a new promotion never edits `PricingService`. |
 | **Adapter** | `llm/openai_compatible_embedding_client.py` | Wraps the OpenAI SDK behind our own `EmbeddingClient` port; provider types stop at that boundary. |
+
+The volume discount is data, not a pattern: `PricingService` takes a tier table (`DEFAULT_TIERS` in
+`services/pricing/discount.py`), so a new promotion is a different table and `PricingService` does not change.
 
 `EmbeddingClient` is deliberately a separate port from any text-generation client: embedding and
 completion are different responsibilities with different failure modes, and this service only ever

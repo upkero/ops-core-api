@@ -18,7 +18,7 @@ from src.app.models import Base
 from src.app.services.booking import BookingService
 from src.app.services.customer import CustomerService
 from src.app.services.knowledge import KnowledgeService
-from src.app.services.pricing import PricingService, QuantityTierDiscountPolicy
+from src.app.services.pricing import PricingService
 from tests import telemetry
 from tests.fakes import (
     FakeBookingRepository,
@@ -94,7 +94,6 @@ class StubContainer:
 
     def __init__(self, *, embedding_client: FakeEmbeddingClient, database_healthy: bool = True) -> None:
         self.embedding_client = embedding_client
-        self.discount_policy = QuantityTierDiscountPolicy()
         self.database_healthy = database_healthy
 
     def session_factory(self) -> "_StubSession":
@@ -163,9 +162,7 @@ def build_app(
 
     application.dependency_overrides[get_customer_service] = lambda: CustomerService(customers)
     application.dependency_overrides[get_booking_service] = lambda: BookingService(slots)
-    application.dependency_overrides[get_pricing_service] = lambda: PricingService(
-        pricing, QuantityTierDiscountPolicy()
-    )
+    application.dependency_overrides[get_pricing_service] = lambda: PricingService(pricing)
     application.dependency_overrides[get_knowledge_service] = lambda: KnowledgeService(knowledge, embedding_client)
     return application
 

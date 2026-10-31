@@ -15,7 +15,6 @@ from opentelemetry.sdk.trace import ReadableSpan
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from src.app.db.session import build_engine, build_session_factory
-from src.app.services.pricing import QuantityTierDiscountPolicy
 from tests import telemetry
 from tests.conftest import TEST_API_KEY, TEST_DB_URL, build_app
 from tests.fakes import (
@@ -133,7 +132,6 @@ async def database_app(
     app.dependency_overrides.clear()
     app.state.container = SimpleNamespace(
         session_factory=build_session_factory(engine),
-        discount_policy=QuantityTierDiscountPolicy(),
         embedding_client=FakeEmbeddingClient(),
     )
     yield app

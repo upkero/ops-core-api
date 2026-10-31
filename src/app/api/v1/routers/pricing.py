@@ -19,7 +19,7 @@ async def quote_price(
     service: Annotated[str, Query(min_length=1, max_length=200, description="Service name to price.")],
     quantity: Annotated[int, Query(ge=1, le=MAX_QUANTITY)] = 1,
 ) -> PriceQuoteResponse:
-    # Discount rules are applied inside PricingService via its DiscountPolicy.
+    # The volume discount is applied inside PricingService.
     return PriceQuoteResponse.model_validate(await pricing_service.quote(service, quantity))
 
 
