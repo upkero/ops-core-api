@@ -22,7 +22,7 @@ class NewChunk:
 class NewDocument:
     title: str
     content: str
-    embedding: Sequence[float] | None
+    embedding: Sequence[float]
     chunks: Sequence[NewChunk]
     # Fingerprint of the model that produced every vector in this document.
     embedding_model: str

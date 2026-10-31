@@ -10,9 +10,7 @@ from src.app.core.metrics import embedding_duration, knowledge_searches, knowled
 from src.app.exceptions.embeddings import EmbeddingInputError, EmbeddingModelMismatchError
 from src.app.interfaces.llm.embedding_client import EmbeddingClient
 from src.app.interfaces.repositories.knowledge_repository import KnowledgeRepository
-from src.app.services.knowledge.chunker import DEFAULT_MAX_CHARS, DEFAULT_OVERLAP, chunk_text
-
-MAX_TOP_K = 50
+from src.app.services.knowledge.chunker import chunk_text
 
 _tracer = trace.get_tracer(__name__)
 
@@ -28,14 +26,9 @@ class KnowledgeService:
         self,
         repository: KnowledgeRepository,
         embedding_client: EmbeddingClient,
-        *,
-        max_chunk_chars: int = DEFAULT_MAX_CHARS,
-        chunk_overlap: int = DEFAULT_OVERLAP,
     ) -> None:
         self._repository = repository
         self._embedding_client = embedding_client
-        self._max_chunk_chars = max_chunk_chars
-        self._chunk_overlap = chunk_overlap
 
     async def add_document(self, title: str, content: str) -> DocumentDTO:
         embedding, chunks = await self._embed(content)
@@ -63,8 +56,8 @@ class KnowledgeService:
             )
         return len(pending)
 
-    async def _embed(self, content: str) -> tuple[Sequence[float] | None, list[NewChunk]]:
-        pieces = chunk_text(content, max_chars=self._max_chunk_chars, overlap=self._chunk_overlap)
+    async def _embed(self, content: str) -> tuple[Sequence[float], list[NewChunk]]:
+        pieces = chunk_text(content)
         if not pieces:
             raise EmbeddingInputError("Document content produced no chunks to embed.")
 
@@ -106,7 +99,6 @@ class KnowledgeService:
     async def search(self, query: str, top_k: int) -> Sequence[ChunkMatchDTO]:
         if not query.strip():
             raise EmbeddingInputError("Search query must not be empty.")
-        top_k = min(max(top_k, 1), MAX_TOP_K)
 
         outcome = "error"
         # The query text stays out: its length is all a span or a metric may say about it.
@@ -156,15 +148,13 @@ class KnowledgeService:
         )
 
     @staticmethod
-    def _mean_vector(vectors: Sequence[Sequence[float]]) -> Sequence[float] | None:
+    def _mean_vector(vectors: Sequence[Sequence[float]]) -> Sequence[float]:
         """Document-level embedding: the centroid of its chunks.
 
         Fills the document's vector column without spending a second provider
         call on the full text. Re-normalised so it sits on the same unit sphere
         as the chunk vectors and stays comparable with cosine distance.
         """
-        if not vectors:
-            return None
         count = len(vectors)
         centroid = [sum(values) / count for values in zip(*vectors, strict=True)]
         norm = math.sqrt(sum(value * value for value in centroid))

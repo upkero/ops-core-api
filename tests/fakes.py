@@ -213,7 +213,7 @@ class FakeKnowledgeRepository(KnowledgeRepository):
     async def index_document(
         self,
         document_id: UUID,
-        embedding: Sequence[float] | None,
+        embedding: Sequence[float],
         chunks: Sequence[NewChunk],
         embedding_model: str,
     ) -> DocumentDTO:

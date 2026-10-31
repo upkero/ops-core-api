@@ -34,7 +34,6 @@ class ChunkMatchResponse(ResponseModel):
     score: float
 
 
-
 class DocumentSearchResponse(ResponseModel):
     query: str
     matches: list[ChunkMatchResponse]

@@ -23,7 +23,7 @@ class SqlAlchemyKnowledgeRepository(KnowledgeRepository):
         row = KnowledgeDocument(
             title=document.title,
             content=document.content,
-            embedding=list(document.embedding) if document.embedding is not None else None,
+            embedding=list(document.embedding),
         )
         self._session.add(row)
         await self._session.flush()
@@ -64,14 +64,14 @@ class SqlAlchemyKnowledgeRepository(KnowledgeRepository):
     async def index_document(
         self,
         document_id: UUID,
-        embedding: Sequence[float] | None,
+        embedding: Sequence[float],
         chunks: Sequence[NewChunk],
         embedding_model: str,
     ) -> DocumentDTO:
         row = await self._session.get(KnowledgeDocument, document_id)
         if row is None:
             raise LookupError(f"Document {document_id} disappeared while it was being re-indexed.")
-        row.embedding = list(embedding) if embedding is not None else None
+        row.embedding = list(embedding)
         self._session.add_all(
             [
                 DocumentChunk(
