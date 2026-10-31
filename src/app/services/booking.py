@@ -33,8 +33,9 @@ logger = getLogger(__name__)
 _tracer = trace.get_tracer(__name__)
 
 
-def _elapsed_ms(started: float) -> float:
-    return round((time.perf_counter() - started) * 1000, 1)
+def _log(event: str, started: float, message: str, **fields: object) -> None:
+    duration_ms = round((time.perf_counter() - started) * 1000, 1)
+    logger.info(message, extra={"event": event, **fields, "duration_ms": duration_ms})
 
 
 class BookingService:
@@ -82,17 +83,14 @@ class BookingService:
             span.set_attribute("ops.results.count", page.total)
             span.set_attribute("booking.guest_name_fp", fingerprint)
         booking_lookups.add(1, {"by": by, "result": result})
-        logger.info(
-            "Booking lookup: %s",
-            result,
-            extra={
-                "event": "booking.lookup",
-                "by": by,
-                "result": result,
-                "results": page.total,
-                "guest_name_fp": fingerprint,
-                "duration_ms": _elapsed_ms(started),
-            },
+        _log(
+            "booking.lookup",
+            started,
+            f"Booking lookup: {result}",
+            by=by,
+            result=result,
+            results=page.total,
+            guest_name_fp=fingerprint,
         )
         return page
 
@@ -109,16 +107,7 @@ class BookingService:
             booking, outcome = await self._cancel_booking(booking_id)
             span.set_attribute("ops.outcome", outcome)
         bookings_cancelled.add(1, {"outcome": outcome})
-        logger.info(
-            "Booking cancel: %s",
-            outcome,
-            extra={
-                "event": "booking.cancelled",
-                "booking_id": str(booking_id),
-                "outcome": outcome,
-                "duration_ms": _elapsed_ms(started),
-            },
-        )
+        _log("booking.cancelled", started, f"Booking cancel: {outcome}", booking_id=str(booking_id), outcome=outcome)
         if booking is None:
             raise EntityNotFoundError(f"Booking '{booking_id}' was not found.")
         return booking
@@ -170,16 +159,8 @@ class BookingService:
             except BaseAppException as exc:
                 span.set_attribute("ops.outcome", exc.error_code)
                 booking_rejections.add(1, {"reason": exc.error_code})
-                logger.info(
-                    "Booking rejected: %s",
-                    exc.error_code,
-                    extra={
-                        "event": "booking.rejected",
-                        "reason": exc.error_code,
-                        **fields,
-                        "duration_ms": _elapsed_ms(started),
-                    },
-                )
+                message = f"Booking rejected: {exc.error_code}"
+                _log("booking.rejected", started, message, reason=exc.error_code, **fields)
                 raise
             span.set_attribute("ops.outcome", "created")
             span.set_attribute("ops.idempotent_replay", replayed)
@@ -191,15 +172,13 @@ class BookingService:
                 "idempotent": "replayed" if replayed else "new",
             },
         )
-        logger.info(
+        _log(
+            "booking.created",
+            started,
             "Booking created",
-            extra={
-                "event": "booking.created",
-                "booking_id": str(booking.id),
-                **fields,
-                "idempotent_replay": replayed,
-                "duration_ms": _elapsed_ms(started),
-            },
+            booking_id=str(booking.id),
+            **fields,
+            idempotent_replay=replayed,
         )
         return booking
 
