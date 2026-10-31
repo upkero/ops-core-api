@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.contracts.pagination import PageDTO, PaginationParams
@@ -22,7 +22,7 @@ class SqlAlchemyPricingRepository(PricingRepository):
         self._session = session
 
     async def get_by_service_name(self, service_name: str) -> PricingItemDTO | None:
-        stmt = select(PricingItem).where(PricingItem.service_name.ilike(service_name))
+        stmt = select(PricingItem).where(func.lower(PricingItem.service_name) == service_name.lower())
         row = await self._session.scalar(stmt)
         return _to_dto(row) if row is not None else None
 

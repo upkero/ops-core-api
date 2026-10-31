@@ -9,6 +9,7 @@ from src.app.contracts.pagination import PageDTO, PaginationParams
 from src.app.interfaces.repositories.customer_repository import CustomerRepository
 from src.app.models.customer import Customer
 from src.app.repositories.pagination import paginate
+from src.app.repositories.search import contains_text
 
 
 def _to_dto(row: Customer) -> CustomerDTO:
@@ -30,10 +31,7 @@ class SqlAlchemyCustomerRepository(CustomerRepository):
         return _to_dto(row) if row is not None else None
 
     async def search_by_name(self, query: str, params: PaginationParams) -> PageDTO[CustomerDTO]:
-        # ILIKE with an escaped pattern: a customer named "50% off" must not
-        # turn into a wildcard search.
-        pattern = f"%{query.replace('!', '!!').replace('%', '!%').replace('_', '!_')}%"
-        stmt = select(Customer).where(Customer.name.ilike(pattern, escape="!")).order_by(Customer.name)
+        stmt = select(Customer).where(contains_text(Customer.name, query)).order_by(Customer.name)
         return await paginate(self._session, stmt, params, _to_dto)
 
     async def list_all(self, params: PaginationParams) -> PageDTO[CustomerDTO]:

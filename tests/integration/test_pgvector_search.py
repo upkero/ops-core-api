@@ -233,6 +233,14 @@ async def test_pricing_lookup_is_case_insensitive(session: AsyncSession) -> None
     assert found.unit_price == Decimal("120.00")
 
 
+@pytest.mark.parametrize("service", ["%", "_", "deep%", "Deep Tissue Massag_"])
+async def test_pricing_lookup_treats_wildcards_literally(session: AsyncSession, service: str) -> None:
+    session.add(PricingItem(service_name="Deep Tissue Massage", unit_price=Decimal("120.00")))
+    await session.flush()
+
+    assert await SqlAlchemyPricingRepository(session).get_by_service_name(service) is None
+
+
 async def test_past_slots_are_filtered_in_sql(session: AsyncSession) -> None:
     now = datetime(2026, 10, 4, 15, 0)
     session.add_all(

@@ -13,6 +13,7 @@ from src.app.core.metrics import slot_lock_wait
 from src.app.interfaces.repositories.booking_repository import BookingRepository, IdempotencyKeyTakenError
 from src.app.models.booking import Booking, BookingSlot
 from src.app.repositories.pagination import paginate
+from src.app.repositories.search import contains_text
 
 
 def _slot_to_dto(row: BookingSlot) -> BookingSlotDTO:
@@ -134,8 +135,7 @@ class SqlAlchemyBookingRepository(BookingRepository):
     ) -> PageDTO[BookingDTO]:
         stmt = select(Booking).join(BookingSlot, Booking.slot_id == BookingSlot.id)
         if guest_name:
-            pattern = f"%{guest_name.replace('!', '!!').replace('%', '!%').replace('_', '!_')}%"
-            stmt = stmt.where(Booking.guest_name.ilike(pattern, escape="!"))
+            stmt = stmt.where(contains_text(Booking.guest_name, guest_name))
         if slot_date is not None:
             stmt = stmt.where(BookingSlot.slot_date == slot_date)
         if status is not None:
