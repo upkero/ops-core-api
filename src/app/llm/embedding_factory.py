@@ -14,8 +14,7 @@ def create_embedding_client(settings: EmbeddingSettings) -> EmbeddingClient:
 
     Callers depend on the EmbeddingClient port, so adding a provider means
     adding a branch and a class here — no service, router or repository
-    changes (Open/Closed). This is also the only place AsyncOpenAI is
-    instantiated.
+    changes. This is also the only place AsyncOpenAI is instantiated.
     """
     if settings.dimensions != EMBEDDING_DIMENSIONS:
         # Caught at startup rather than as an opaque database error on the

@@ -8,7 +8,7 @@ class EmbeddingClient(ABC):
     Deliberately separate from any text-generation port: embedding and
     completion are different responsibilities with different providers, models
     and failure modes, and a service that only needs one should not be coupled
-    to the other (Single Responsibility / Interface Segregation).
+    to the other.
     """
 
     @property

@@ -1,4 +1,4 @@
-"""Business and rate-limit instruments (OBSERVABILITY-AUDIT §1.1).
+"""Business and rate-limit instruments.
 
 Labels are bounded sets only: never a name, an id, a path or a free-text value.
 The instruments are created against the global meter, which binds to the provider

@@ -20,8 +20,7 @@ class ResourceType(enum.StrEnum):
     The operator behind this API runs a restaurant, a wellness clinic and a set
     of hireable meeting rooms, so `resource_type` is the parameter the agent
     services differ by: the voice agent books tables, the sales agent sells
-    treatments. A clinic reserving a "table" was the tell that the demo data and
-    the schema had drifted apart.
+    treatments.
     """
 
     TABLE = "table"

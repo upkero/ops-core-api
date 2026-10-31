@@ -41,8 +41,8 @@ def _log(event: str, started: float, message: str, **fields: object) -> None:
 class BookingService:
     """Owns the rules for taking a booking.
 
-    The rules live here rather than in the router so that any caller — HTTP,
-    the seeding command, a future agent service — gets the same guarantees.
+    The rules live here rather than in the router so that every entry point
+    gets the same guarantees.
     """
 
     def __init__(

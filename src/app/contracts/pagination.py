@@ -17,8 +17,8 @@ class PaginationParams:
     offset: int = 0
 
     def __post_init__(self) -> None:
-        # Validated here as well as at the HTTP boundary, because the seeding
-        # command and the future agent services construct these directly.
+        # Validated here as well as at the HTTP boundary, so a value built
+        # anywhere else cannot reach a repository unchecked.
         if not 1 <= self.limit <= MAX_LIMIT:
             raise ValueError(f"limit must be between 1 and {MAX_LIMIT}.")
         if self.offset < 0:

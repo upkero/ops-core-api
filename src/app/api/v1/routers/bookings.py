@@ -50,8 +50,7 @@ async def find_bookings(
         Query(alias="status", description="Defaults to active bookings only."),
     ] = BookingStatus.ACTIVE,
 ) -> Page[BookingResponse]:
-    # Guarded by the API key even when reads are public: this is the one
-    # endpoint that reveals who is dining where and when.
+    # The one endpoint that reveals who is dining where and when.
     page = await service.find_bookings(guest_name, slot_date, status_filter, pagination)
     return Page[BookingResponse].model_validate(page)
 
