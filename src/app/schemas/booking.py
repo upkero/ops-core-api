@@ -1,10 +1,10 @@
 from datetime import date, datetime, time
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 from src.app.contracts.enums import BookingStatus, ResourceType
-from src.app.schemas.base import ResponseModel
+from src.app.schemas.base import NonBlankName, ResponseModel
 
 
 class BookingSlotResponse(ResponseModel):
@@ -18,17 +18,9 @@ class BookingSlotResponse(ResponseModel):
 
 
 class BookingCreateRequest(BaseModel):
-    guest_name: str = Field(..., min_length=1, max_length=200, description="Name the table is reserved under.")
+    guest_name: NonBlankName = Field(..., description="Name the table is reserved under.")
     slot_id: UUID
     party_size: int = Field(..., ge=1, le=100)
-
-    @field_validator("guest_name")
-    @classmethod
-    def reject_blank(cls, value: str) -> str:
-        cleaned = value.strip()
-        if not cleaned:
-            raise ValueError("guest_name must not be blank")
-        return cleaned
 
 
 class BookingResponse(ResponseModel):
