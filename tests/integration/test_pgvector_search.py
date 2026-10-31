@@ -57,6 +57,30 @@ async def _store_chunks(session: AsyncSession, embedder: HashingEmbeddingClient)
     return repository
 
 
+async def test_add_document_returns_the_stored_document(
+    session: AsyncSession, embedder: HashingEmbeddingClient
+) -> None:
+    repository = SqlAlchemyKnowledgeRepository(session)
+    vectors = await embedder.embed_batch(CHUNKS)
+
+    stored = await repository.add_document(
+        NewDocument(
+            title="Clinic handbook",
+            content="\n\n".join(CHUNKS),
+            embedding=vectors[0],
+            embedding_model=embedder.fingerprint,
+            chunks=[
+                NewChunk(chunk_index=index, chunk_text=chunk, embedding=vector)
+                for index, (chunk, vector) in enumerate(zip(CHUNKS, vectors, strict=True))
+            ],
+        )
+    )
+
+    assert (stored.title, stored.chunk_count) == ("Clinic handbook", len(CHUNKS))
+    assert stored.created_at is not None
+    assert await repository.list_unindexed_documents() == []
+
+
 async def test_search_ranks_the_relevant_chunk_first(
     session: AsyncSession,
     embedder: HashingEmbeddingClient,

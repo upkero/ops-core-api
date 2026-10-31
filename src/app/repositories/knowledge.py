@@ -20,36 +20,10 @@ class SqlAlchemyKnowledgeRepository(KnowledgeRepository):
         self._session = session
 
     async def add_document(self, document: NewDocument) -> DocumentDTO:
-        row = KnowledgeDocument(
-            title=document.title,
-            content=document.content,
-            embedding=list(document.embedding),
-        )
+        row = KnowledgeDocument(title=document.title, content=document.content)
         self._session.add(row)
         await self._session.flush()
-
-        self._session.add_all(
-            [
-                DocumentChunk(
-                    document_id=row.id,
-                    chunk_text=chunk.chunk_text,
-                    embedding=list(chunk.embedding),
-                    chunk_index=chunk.chunk_index,
-                    embedding_model=document.embedding_model,
-                )
-                for chunk in document.chunks
-            ]
-        )
-        await self._session.flush()
-        await self._session.refresh(row)
-
-        return DocumentDTO(
-            id=row.id,
-            title=row.title,
-            content=row.content,
-            chunk_count=len(document.chunks),
-            created_at=row.created_at,
-        )
+        return await self.index_document(row.id, document.embedding, document.chunks, document.embedding_model)
 
     async def list_unindexed_documents(self) -> Sequence[DocumentDTO]:
         stmt = (

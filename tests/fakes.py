@@ -238,26 +238,15 @@ class FakeKnowledgeRepository(KnowledgeRepository):
 
     async def add_document(self, document: NewDocument) -> DocumentDTO:
         self.documents.append(document)
-        document_id = uuid4()
-        self.chunks.extend(
-            _StoredChunk(
-                chunk_id=uuid4(),
-                document_id=document_id,
-                document_title=document.title,
-                chunk_index=chunk.chunk_index,
-                chunk_text=chunk.chunk_text,
-                embedding=chunk.embedding,
-                embedding_model=document.embedding_model,
-            )
-            for chunk in document.chunks
-        )
-        return DocumentDTO(
-            id=document_id,
+        stored = DocumentDTO(
+            id=uuid4(),
             title=document.title,
             content=document.content,
-            chunk_count=len(document.chunks),
+            chunk_count=0,
             created_at=datetime(2026, 7, 22, tzinfo=UTC),
         )
+        self.unindexed.append(stored)
+        return await self.index_document(stored.id, document.embedding, document.chunks, document.embedding_model)
 
     async def search_chunks(
         self,
