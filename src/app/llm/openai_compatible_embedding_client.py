@@ -1,13 +1,16 @@
 from collections.abc import Sequence
+from logging import getLogger
 from typing import Any
 
+from openai import OpenAIError
 from opentelemetry import trace
 
 from src.app.core import metrics
 from src.app.core.settings.embeddings import EmbeddingSettings
 from src.app.exceptions.embeddings import EmbeddingGenerationError, EmbeddingInputError
 from src.app.interfaces.llm.embedding_client import EmbeddingClient
-from src.app.llm.errors import wrap_provider_errors
+
+logger = getLogger(__name__)
 
 
 class OpenAICompatibleEmbeddingClient(EmbeddingClient):
@@ -40,12 +43,16 @@ class OpenAICompatibleEmbeddingClient(EmbeddingClient):
         vectors = await self.embed_batch([text])
         return vectors[0]
 
-    @wrap_provider_errors("embed_batch")
     async def embed_batch(self, texts: Sequence[str]) -> Sequence[Sequence[float]]:
         if not texts:
             raise EmbeddingInputError("Cannot embed an empty batch.")
 
-        response = await self._client.embeddings.create(**self._request_params(texts))
+        try:
+            response = await self._client.embeddings.create(**self._request_params(texts))
+        except OpenAIError as exc:
+            # No retry here: the SDK already retries, configured via EMBEDDING_MAX_RETRIES.
+            logger.error("Embedding provider request failed: %s", exc)
+            raise EmbeddingGenerationError("Embedding provider request failed.") from exc
         vectors = [item.embedding for item in sorted(response.data, key=lambda item: item.index)]
         self._record_usage(response)
 

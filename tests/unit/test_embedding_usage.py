@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 
 import pytest
+from openai import OpenAIError
 
 from src.app.core.settings.embeddings import EmbeddingSettings
 from src.app.exceptions.embeddings import EmbeddingGenerationError
@@ -21,7 +22,7 @@ class _Embeddings:
         return self._response
 
 
-def _client(usage: SimpleNamespace | None) -> OpenAICompatibleEmbeddingClient:
+def _client(usage: SimpleNamespace | None, embeddings: object | None = None) -> OpenAICompatibleEmbeddingClient:
     response = SimpleNamespace(
         data=[SimpleNamespace(index=0, embedding=[0.1] * DIMENSIONS)],
         usage=usage,
@@ -32,7 +33,8 @@ def _client(usage: SimpleNamespace | None) -> OpenAICompatibleEmbeddingClient:
         base_url="https://openrouter.ai/api/v1",
         dimensions=DIMENSIONS,
     )
-    return OpenAICompatibleEmbeddingClient(settings=settings, client=SimpleNamespace(embeddings=_Embeddings(response)))
+    sdk = SimpleNamespace(embeddings=embeddings or _Embeddings(response))
+    return OpenAICompatibleEmbeddingClient(settings=settings, client=sdk)
 
 
 def _tokens() -> float:
@@ -78,3 +80,14 @@ async def test_the_spend_of_a_response_that_is_then_rejected_is_still_recorded()
         await client.embed_batch(["one", "two"])
 
     assert telemetry.reading("llm.cost", **LABELS) - cost == pytest.approx(0.1)
+
+
+async def test_a_provider_failure_surfaces_as_the_apps_own_error() -> None:
+    class _Failing:
+        async def create(self, **params: object) -> SimpleNamespace:
+            raise OpenAIError("upstream is down")
+
+    with pytest.raises(EmbeddingGenerationError) as raised:
+        await _client(None, _Failing()).embed_batch(["text"])
+
+    assert isinstance(raised.value.__cause__, OpenAIError)
