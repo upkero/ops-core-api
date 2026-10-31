@@ -3,7 +3,6 @@ from fastapi import APIRouter, Request, Response, status
 from src.app.api.v1.dependencies import KnowledgeServiceDep
 from src.app.api.v1.middleware.rate_limit import embedding_endpoint_limit, limiter
 from src.app.schemas.document import (
-    ChunkMatchResponse,
     DocumentCreateRequest,
     DocumentResponse,
     DocumentSearchRequest,
@@ -27,7 +26,7 @@ async def add_document(
     # Chunking and embedding are the service's job; the router does not know
     # that either step exists.
     document = await service.add_document(body.title, body.content)
-    return DocumentResponse.from_contract(document)
+    return DocumentResponse.model_validate(document)
 
 
 @router.post("/search", response_model=DocumentSearchResponse)
@@ -39,7 +38,4 @@ async def search_documents(
     service: KnowledgeServiceDep,
 ) -> DocumentSearchResponse:
     matches = await service.search(body.query, body.top_k)
-    return DocumentSearchResponse(
-        query=body.query,
-        matches=[ChunkMatchResponse.from_contract(match) for match in matches],
-    )
+    return DocumentSearchResponse(query=body.query, matches=matches)

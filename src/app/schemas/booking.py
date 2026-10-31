@@ -3,11 +3,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
-from src.app.contracts.booking import BookingDTO, BookingSlotDTO
 from src.app.contracts.enums import BookingStatus, ResourceType
+from src.app.schemas.base import ResponseModel
 
 
-class BookingSlotResponse(BaseModel):
+class BookingSlotResponse(ResponseModel):
     id: UUID
     resource_type: ResourceType
     slot_date: date
@@ -15,16 +15,6 @@ class BookingSlotResponse(BaseModel):
     capacity: int
     is_available: bool
 
-    @classmethod
-    def from_contract(cls, slot: BookingSlotDTO) -> "BookingSlotResponse":
-        return cls(
-            id=slot.id,
-            resource_type=slot.resource_type,
-            slot_date=slot.slot_date,
-            slot_time=slot.slot_time,
-            capacity=slot.capacity,
-            is_available=slot.is_available,
-        )
 
 
 class BookingCreateRequest(BaseModel):
@@ -41,7 +31,7 @@ class BookingCreateRequest(BaseModel):
         return cleaned
 
 
-class BookingResponse(BaseModel):
+class BookingResponse(ResponseModel):
     id: UUID
     guest_name: str
     slot_id: UUID
@@ -49,15 +39,3 @@ class BookingResponse(BaseModel):
     created_at: datetime
     status: BookingStatus
     cancelled_at: datetime | None = None
-
-    @classmethod
-    def from_contract(cls, booking: BookingDTO) -> "BookingResponse":
-        return cls(
-            id=booking.id,
-            guest_name=booking.guest_name,
-            slot_id=booking.slot_id,
-            party_size=booking.party_size,
-            created_at=booking.created_at,
-            status=booking.status,
-            cancelled_at=booking.cancelled_at,
-        )

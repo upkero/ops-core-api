@@ -1,11 +1,9 @@
-from collections.abc import Callable
+from pydantic import Field
 
-from pydantic import BaseModel, Field
-
-from src.app.contracts.pagination import PageDTO
+from src.app.schemas.base import ResponseModel
 
 
-class Page[T](BaseModel):
+class Page[T](ResponseModel):
     """Envelope for every list endpoint.
 
     One generic model rather than a wrapper per resource, so the shape a client
@@ -18,13 +16,3 @@ class Page[T](BaseModel):
     limit: int
     offset: int
     has_more: bool = Field(..., description="True when further rows exist beyond this page.")
-
-    @classmethod
-    def from_contract[C](cls, page: PageDTO[C], to_schema: Callable[[C], T]) -> "Page[T]":
-        return cls(
-            items=[to_schema(item) for item in page.items],
-            total=page.total,
-            limit=page.limit,
-            offset=page.offset,
-            has_more=page.has_more,
-        )

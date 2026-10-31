@@ -22,4 +22,4 @@ async def list_available_slots(
     resource_type: Annotated[ResourceType | None, Query()] = None,
 ) -> Page[BookingSlotResponse]:
     page = await service.list_available_slots(slot_date, resource_type, pagination)
-    return Page.from_contract(page, BookingSlotResponse.from_contract)
+    return Page[BookingSlotResponse].model_validate(page)

@@ -20,10 +20,10 @@ async def quote_price(
     quantity: Annotated[int, Query(ge=1, le=MAX_QUANTITY)] = 1,
 ) -> PriceQuoteResponse:
     # Discount rules are applied inside PricingService via its DiscountPolicy.
-    return PriceQuoteResponse.from_contract(await pricing_service.quote(service, quantity))
+    return PriceQuoteResponse.model_validate(await pricing_service.quote(service, quantity))
 
 
 @router.get("/services", response_model=Page[PricingItemResponse])
 async def list_services(pricing_service: PricingServiceDep, pagination: PaginationDep) -> Page[PricingItemResponse]:
     page = await pricing_service.list_services(pagination)
-    return Page.from_contract(page, PricingItemResponse.from_contract)
+    return Page[PricingItemResponse].model_validate(page)

@@ -1,28 +1,18 @@
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel
-
-from src.app.contracts.pricing import PriceQuoteDTO, PricingItemDTO
+from src.app.schemas.base import ResponseModel
 
 
-class PricingItemResponse(BaseModel):
+class PricingItemResponse(ResponseModel):
     id: UUID
     service_name: str
     unit_price: Decimal
     description: str | None
 
-    @classmethod
-    def from_contract(cls, item: PricingItemDTO) -> "PricingItemResponse":
-        return cls(
-            id=item.id,
-            service_name=item.service_name,
-            unit_price=item.unit_price,
-            description=item.description,
-        )
 
 
-class PriceQuoteResponse(BaseModel):
+class PriceQuoteResponse(ResponseModel):
     """Money fields are Decimal and serialise as JSON strings ("240.00").
 
     Deliberate: rendering them as floats would hand clients a value that
@@ -36,15 +26,3 @@ class PriceQuoteResponse(BaseModel):
     discount_percent: Decimal
     discount_amount: Decimal
     total: Decimal
-
-    @classmethod
-    def from_contract(cls, quote: PriceQuoteDTO) -> "PriceQuoteResponse":
-        return cls(
-            service_name=quote.service_name,
-            unit_price=quote.unit_price,
-            quantity=quote.quantity,
-            subtotal=quote.subtotal,
-            discount_percent=quote.discount_percent,
-            discount_amount=quote.discount_amount,
-            total=quote.total,
-        )

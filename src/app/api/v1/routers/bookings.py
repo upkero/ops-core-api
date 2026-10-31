@@ -36,7 +36,7 @@ async def create_booking(
         party_size=body.party_size,
         idempotency_key=idempotency_key,
     )
-    return BookingResponse.from_contract(booking)
+    return BookingResponse.model_validate(booking)
 
 
 @router.get("", response_model=Page[BookingResponse])
@@ -53,7 +53,7 @@ async def find_bookings(
     # Guarded by the API key even when reads are public: this is the one
     # endpoint that reveals who is dining where and when.
     page = await service.find_bookings(guest_name, slot_date, status_filter, pagination)
-    return Page.from_contract(page, BookingResponse.from_contract)
+    return Page[BookingResponse].model_validate(page)
 
 
 @router.delete("/{booking_id}", response_model=BookingResponse)
@@ -61,4 +61,4 @@ async def cancel_booking(booking_id: UUID, service: BookingServiceDep) -> Bookin
     # DELETE rather than POST /cancel: HTTP defines it as idempotent, which is
     # exactly the behaviour a dropped call needs, and the row survives as a
     # cancelled booking rather than being destroyed.
-    return BookingResponse.from_contract(await service.cancel_booking(booking_id))
+    return BookingResponse.model_validate(await service.cancel_booking(booking_id))
